@@ -67,3 +67,26 @@ main{max-width:none;width:100%;margin:0}
 .scanline-panel .line-swatch{width:17px;height:17px;flex-basis:17px}
 .mix-swatch{display:inline-flex;align-items:center;justify-content:center;min-width:46px;height:21px;padding:0 4px;border:1px solid #ffffff75;border-radius:4px;color:#fff;font:9px 'DM Mono',monospace;text-shadow:0 1px 2px #000d}
 .mix-empty{color:#536171}
+.export-panel{display:flex;flex-direction:column;min-height:150px}
+.export-panel pre{flex:1 1 auto;min-height:80px;max-height:none;margin:10px 0 0;white-space:pre;overflow:auto}
+.syntax-comment{color:#8296a7}
+.syntax-keyword{color:#83b7ff}
+.syntax-number{color:#f4c879}
+@media(max-width:960px){.export-panel pre{flex:0 1 auto;max-height:45vh;min-height:180px}}
+.cc-map-panel{padding:18px 20px}
+.cc-map-scroll{max-width:100%;overflow:auto}
+.cc-map-grid{display:grid;grid-template-columns:38px repeat(16,minmax(23px,1fr));grid-auto-rows:22px;gap:2px;width:100%;min-width:440px}
+.cc-map-corner,.cc-map-axis,.cc-map-cell{display:flex;align-items:center;justify-content:center;min-width:0;border:1px solid #ffffff30;border-radius:3px;font:8px 'DM Mono',monospace;white-space:nowrap}
+.cc-map-corner{color:var(--muted);font-size:7px}
+.cc-map-axis{font-weight:600;text-shadow:0 1px 2px #000b}
+.cc-map-cell{text-shadow:0 1px 2px #000b;cursor:help}
+.cc-map-cell:hover{outline:2px solid #fff;outline-offset:1px;position:relative;z-index:1}
+@media (min-width:961px){
+  .workspace{height:1810px}
+  .cc-map-panel{position:absolute;left:0;top:987px;width:calc(54% - 8px);height:560px;resize:both;overflow:auto}
+  .export-panel{left:0;top:1563px;width:100%;height:220px}
+}
+@media (max-width:960px){.cc-map-panel{position:static!important;width:auto!important;height:auto!important;min-width:0;resize:none;overflow:visible}.cc-map-grid{grid-template-columns:32px repeat(16,minmax(23px,1fr))}}
+.window-collapse{flex:0 0 auto;min-width:28px;padding:2px 7px;margin-left:auto;color:var(--accent);font:600 17px/1 'DM Mono',monospace}
+.movable-panel.collapsed{height:auto!important;min-height:0!important;resize:none!important;overflow:hidden!important;padding-bottom:10px}
+.movable-panel.collapsed .window-handle~*{display:none!important}

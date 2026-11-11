@@ -15,7 +15,7 @@ export const V9938_DEFAULT_PALETTE: Rgb3[] = [
   { r: 1, g: 6, b: 1 }, // 2: medium green
   { r: 3, g: 7, b: 3 }, // 3: light green
   { r: 1, g: 1, b: 7 }, // 4: dark blue
-  { r: 3, g: 2, b: 7 }, // 5: light blue
+  { r: 2, g: 3, b: 7 }, // 5: light blue
   { r: 5, g: 1, b: 1 }, // 6: dark red
   { r: 2, g: 6, b: 7 }, // 7: cyan
   { r: 7, g: 1, b: 1 }, // 8: medium red
@@ -23,7 +23,7 @@ export const V9938_DEFAULT_PALETTE: Rgb3[] = [
   { r: 6, g: 6, b: 1 }, // 10: dark yellow
   { r: 6, g: 6, b: 4 }, // 11: light yellow
   { r: 1, g: 4, b: 1 }, // 12: dark green
-  { r: 2, g: 6, b: 5 }, // 13: magenta
+  { r: 6, g: 2, b: 5 }, // 13: magenta
   { r: 5, g: 5, b: 5 }, // 14: gray
   { r: 7, g: 7, b: 7 }, // 15: white
 ];

@@ -13,6 +13,7 @@ const context = canvas.getContext("2d")!;
 const sizePicker = document.querySelector<HTMLSelectElement>("#sprite-size")!;
 const rowsElement = document.querySelector<HTMLTableSectionElement>("#scanline-rows")!;
 const paletteSlotsElement = document.querySelector<HTMLDivElement>("#palette-slots")!;
+const ccMapElement = document.querySelector<HTMLDivElement>("#cc-map-grid")!;
 const output = document.querySelector<HTMLElement>("#export-output code")!;
 const status = document.querySelector<HTMLElement>("#export-status")!;
 const canvasStatus = document.querySelector<HTMLElement>("#canvas-status")!;
@@ -39,7 +40,6 @@ const channelOutputs = {
   g: document.querySelector<HTMLOutputElement>("#green-value")!,
   b: document.querySelector<HTMLOutputElement>("#blue-value")!,
 };
-
 let project: Msx2Project = createMsx2Project(16);
 let selectedRow = 0;
 let selectedPaletteSlot = 1;
@@ -49,19 +49,48 @@ let drawing = false;
 const layoutKey = "spritemate-msx2-window-layout";
 const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel"));
 
+function updateCollapseButton(panel: HTMLElement, collapsed: boolean): void {
+  const button = panel.querySelector<HTMLButtonElement>(".window-collapse");
+  if (!button) return;
+  button.textContent = collapsed ? "+" : "−";
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} ${panel.querySelector("h2")?.textContent || "panel"}`);
+  button.title = collapsed ? "Expand panel" : "Collapse panel";
+}
+
 function saveWindowLayout(): void {
   if (window.innerWidth <= 960) return;
   const layout = Object.fromEntries(panels.map((panel) => [panel.dataset.panel, {
     left: panel.offsetLeft,
     top: panel.offsetTop,
     width: panel.offsetWidth,
-    height: panel.offsetHeight,
+    height: panel.classList.contains("collapsed")
+      ? Number(panel.dataset.expandedHeight) || panel.offsetHeight
+      : panel.offsetHeight,
+    collapsed: panel.classList.contains("collapsed"),
   }]));
   try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
 }
 
 function setupWindowLayout(): void {
-  let saved: Record<string, { left: number; top: number; width: number; height: number }> = {};
+  for (const panel of panels) {
+    const handle = panel.querySelector<HTMLElement>(".window-handle");
+    if (!handle || handle.querySelector(".window-collapse")) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "window-collapse";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const collapsed = !panel.classList.contains("collapsed");
+      if (collapsed) panel.dataset.expandedHeight = String(panel.offsetHeight);
+      panel.classList.toggle("collapsed", collapsed);
+      updateCollapseButton(panel, collapsed);
+      saveWindowLayout();
+    });
+    handle.append(button);
+  }
+
+  let saved: Record<string, { left: number; top: number; width: number; height: number; collapsed?: boolean }> = {};
   try { saved = JSON.parse(localStorage.getItem(layoutKey) || "{}"); } catch { /* Use default positions. */ }
   // Keep existing window positions when adding the preview window. Move only
   // the previous default export window so it does not cover the new preview.
@@ -79,14 +108,19 @@ function setupWindowLayout(): void {
       saved.export = { ...saved.export, top: 987 };
     }
   }
+  if (!saved["cc-map"] && saved.export && (saved.export.top === 987 || saved.export.top === 1242)) {
+    saved.export = { ...saved.export, top: 1563 };
+  }
   if (window.innerWidth > 960) {
     for (const panel of panels) {
       const position = saved[panel.dataset.panel || ""];
-      if (!position || !Object.values(position).every(Number.isFinite)) continue;
+      if (!position || ![position.left, position.top, position.width, position.height].every(Number.isFinite)) continue;
       panel.style.width = `${Math.min(Math.max(position.width, 320), Math.max(320, panel.parentElement!.clientWidth))}px`;
       panel.style.height = `${Math.max(position.height, 150)}px`;
       panel.style.left = `${Math.max(0, Math.min(position.left, panel.parentElement!.clientWidth - panel.offsetWidth))}px`;
       panel.style.top = `${Math.max(0, Math.min(position.top, panel.parentElement!.clientHeight - 45))}px`;
+      panel.classList.toggle("collapsed", Boolean(position.collapsed));
+      updateCollapseButton(panel, Boolean(position.collapsed));
     }
   }
 
@@ -132,6 +166,9 @@ document.querySelector<HTMLButtonElement>("#reset-layout")!.addEventListener("cl
     panel.style.width = "";
     panel.style.height = "";
     panel.style.zIndex = "";
+    panel.classList.remove("collapsed");
+    delete panel.dataset.expandedHeight;
+    updateCollapseButton(panel, false);
   }
 });
 setupWindowLayout();
@@ -262,11 +299,66 @@ function renderPreview(): void {
 
 function renderOutput(): void {
   try {
-    output.textContent = exportMsx2ProjectC(project.sprites, project.spriteSize, project.palette);
+    const source = exportMsx2ProjectC(project.sprites, project.spriteSize, project.palette);
+    const fragment = document.createDocumentFragment();
+    const tokens = /(\/\*[\s\S]*?\*\/)|\b(const|u8)\b|\b0x[\da-fA-F]+\b|\b\d+\b/g;
+    let cursor = 0;
+    for (const match of source.matchAll(tokens)) {
+      const index = match.index ?? 0;
+      if (index > cursor) fragment.append(document.createTextNode(source.slice(cursor, index)));
+      const token = match[0];
+      const span = document.createElement("span");
+      span.className = token.startsWith("/*") ? "syntax-comment" : token === "const" || token === "u8" ? "syntax-keyword" : "syntax-number";
+      span.textContent = token;
+      fragment.append(span);
+      cursor = index + token.length;
+    }
+    if (cursor < source.length) fragment.append(document.createTextNode(source.slice(cursor)));
+    output.replaceChildren(fragment);
     status.textContent = `${project.spriteSize}×${project.spriteSize} · two sprites and 16-slot palette data`;
   } catch (error) {
     output.textContent = "";
     status.textContent = error instanceof Error ? error.message : "Could not encode sprite.";
+  }
+}
+
+function renderCcMap(): void {
+  ccMapElement.replaceChildren();
+  const corner = document.createElement("div");
+  corner.className = "cc-map-corner";
+  corner.textContent = "S0\\S1";
+  corner.title = "Sprite 0 slot by Sprite 1 slot";
+  ccMapElement.append(corner);
+
+  for (let overlaySlot = 0; overlaySlot < project.palette.length; overlaySlot++) {
+    const header = document.createElement("div");
+    header.className = "cc-map-axis overlay-axis";
+    header.textContent = `P${String(overlaySlot).padStart(2, "0")}`;
+    header.style.backgroundColor = colorIndexToCss(project.palette[overlaySlot]);
+    header.style.color = overlaySlot > 7 ? "#071018" : "#f2f5f8";
+    header.title = `Sprite 1: P${String(overlaySlot).padStart(2, "0")} · ${overlaySlot.toString(2).padStart(4, "0")} · ${colorIndexToHex(project.palette[overlaySlot])}`;
+    ccMapElement.append(header);
+  }
+
+  for (let baseSlot = 0; baseSlot < project.palette.length; baseSlot++) {
+    const header = document.createElement("div");
+    header.className = "cc-map-axis base-axis";
+    header.textContent = `P${String(baseSlot).padStart(2, "0")}`;
+    header.style.backgroundColor = colorIndexToCss(project.palette[baseSlot]);
+    header.style.color = baseSlot > 7 ? "#071018" : "#f2f5f8";
+    header.title = `Sprite 0: P${String(baseSlot).padStart(2, "0")} · ${baseSlot.toString(2).padStart(4, "0")} · ${colorIndexToHex(project.palette[baseSlot])}`;
+    ccMapElement.append(header);
+    for (let overlaySlot = 0; overlaySlot < project.palette.length; overlaySlot++) {
+      const result = baseSlot | overlaySlot;
+      const cell = document.createElement("div");
+      cell.className = "cc-map-cell";
+      cell.setAttribute("role", "gridcell");
+      cell.textContent = `P${String(result).padStart(2, "0")}`;
+      cell.style.backgroundColor = colorIndexToCss(project.palette[result]);
+      cell.style.color = result > 7 ? "#071018" : "#f2f5f8";
+      cell.title = `P${String(baseSlot).padStart(2, "0")} (${baseSlot.toString(2).padStart(4, "0")}) OR P${String(overlaySlot).padStart(2, "0")} (${overlaySlot.toString(2).padStart(4, "0")}) = P${String(result).padStart(2, "0")} (${result.toString(2).padStart(4, "0")}) · ${colorIndexToHex(project.palette[result])}`;
+      ccMapElement.append(cell);
+    }
   }
 }
 
@@ -297,6 +389,7 @@ function renderPaletteSlots(): void {
     button.addEventListener("click", () => openPalettePicker(slot));
     paletteSlotsElement.append(button);
   });
+  renderCcMap();
 }
 
 function renderRows(): void {
