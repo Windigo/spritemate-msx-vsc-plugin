@@ -1,0 +1,8 @@
+.git/**
+.gitignore
+.vscode/**
+app/**
+node_modules/**
+build-extension.sh
+*.vsix
+**/*.map

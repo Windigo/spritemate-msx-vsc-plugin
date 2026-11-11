@@ -1,0 +1,38 @@
+{
+  "name": "spritemate-msx-vscode-plugin",
+  "displayName": "Spritemate MSX2 Sprite Editor",
+  "description": "A standalone VS Code extension with a V9938 Sprite Mode 2 pixel editor and MSXgl data export.",
+  "version": "0.1.0",
+  "publisher": "MennoHomanWindigo",
+  "author": "Menno Homan (Windigo)",
+  "license": "MIT",
+  "categories": ["Visualization", "Other"],
+  "keywords": ["msx", "msx2", "v9938", "sprite", "pixel art", "msxgl", "retro"],
+  "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onCommand:spritemateMsx.open"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "spritemateMsx.open",
+        "title": "Spritemate MSX: Open Sprite Editor",
+        "category": "Spritemate MSX"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "spritemateMsx.open",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "true"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "./build-extension.sh",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  }
+}

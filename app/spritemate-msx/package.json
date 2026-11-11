@@ -1,0 +1,27 @@
+{
+  "name": "spritemate-msx",
+  "version": "1.2.1",
+  "description": "Standalone MSX2 sprite editor based on Spritemate",
+  "author": "Ingo Hinterding",
+  "license": "MIT",
+  "type": "module",
+  "main": "App.ts",
+  "scripts": {
+    "dev": "vite",
+    "dev:msx": "vite --open /msx.html",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@types/jszip": "^3.4.1",
+    "@typescript-eslint/eslint-plugin": "^8.50.1",
+    "@typescript-eslint/parser": "^8.50.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.7.4",
+    "vite": "^7.3.5"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+app/spritemate-msx/node_modules/
+app/spritemate-msx/dist/
+media/
+*.vsix
+.DS_Store

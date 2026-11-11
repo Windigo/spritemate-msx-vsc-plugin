@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-store, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <script>
+      // A stale service worker is the most common reason a browser keeps showing
+      // the previous editor build after a reload, even when the server sends
+      // no-store headers. Remove any lingering registration once per tab session.
+      (function () {
+        if (!("serviceWorker" in navigator)) return;
+        if (sessionStorage.getItem("spritemate-sw-cleanup")) return;
+        sessionStorage.setItem("spritemate-sw-cleanup", "1");
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          if (!registrations.length) return;
+          Promise.all(registrations.map(function (registration) { return registration.unregister(); }))
+            .then(function () { location.reload(); });
+        });
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spritemate MSX2</title>
+    <link rel="stylesheet" href="./src/js/msx/editor.css" />
+    <script type="module" src="./src/js/msx/editor.ts"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">SPRITEMATE FORK</span>
+        <h1>MSX2 Sprite Editor</h1>
+      </div>
+      <div class="actions">
+        <label class="button secondary" for="project-file">Open project</label>
+        <input id="project-file" type="file" accept=".msxproj,.json,application/json" hidden />
+        <button id="save-project" class="secondary">Save project</button>
+        <button id="export-c" class="primary">Export C data</button>
+        <button id="reset-layout" class="secondary" type="button">Reset windows</button>
+      </div>
+    </header>
+    <main>
+      <section class="workspace">
+        <div class="editor-panel panel movable-panel" data-panel="editor">
+          <div class="panel-heading window-handle">
+            <div>
+              <span class="eyebrow">VDP MODE</span>
+              <h2>Draw sprite</h2>
+            </div>
+            <label class="size-picker">Sprite size
+              <select id="sprite-size">
+                <option value="8">8 × 8</option>
+                <option value="16" selected>16 × 16</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint">Choose a sprite and draw with click or drag. The other sprite stays visible as a translucent guide.</p>
+          <div class="layer-picker" role="group" aria-label="Sprite to draw">
+            <button class="layer-button active" type="button" data-layer="0" aria-pressed="true">Sprite 0 · base</button>
+            <button class="layer-button" type="button" data-layer="1" aria-pressed="false">Sprite 1 · CC overlay</button>
+          </div>
+          <div class="canvas-wrap">
+            <div class="canvas-stage">
+              <div id="base-row-guide" class="canvas-row-guide" aria-label="Sprite 0 row colors"></div>
+              <canvas id="sprite-canvas" aria-label="Sprite pixel canvas"></canvas>
+              <div id="overlay-row-guide" class="canvas-row-guide" aria-label="Sprite 1 row colors"></div>
+            </div>
+          </div>
+          <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span>The overlap preview shows the final CC color.</span></div>
+        </div>
+        <section class="preview-panel panel movable-panel" data-panel="preview">
+          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2>Overlap preview</h2></div></div>
+          <div class="preview-layout">
+            <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
+            <div class="preview-details">
+              <p class="hint">The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.</p>
+              <strong id="overlap-formula">P02 OR P04 = P06</strong>
+              <div class="preview-result"><span id="overlap-swatch"></span><span id="overlap-color">P06</span></div>
+            </div>
+          </div>
+        </section>
+        <aside class="controls-panel palette-panel panel movable-panel" data-panel="palette">
+          <section class="palette-section">
+            <div class="panel-heading window-handle">
+              <div><span class="eyebrow">V9938 PALETTE</span><h2>Color slots</h2></div>
+              <span class="palette-count">16 slots · 512 colors</span>
+            </div>
+            <p class="hint">The 4 bits are the sprite color code used by CC OR. Click a slot to edit its RGB color.</p>
+            <div id="palette-slots" class="palette-slots"></div>
+          </section>
+        </aside>
+        <aside class="controls-panel scanline-panel panel movable-panel" data-panel="scanlines">
+          <div class="panel-heading window-handle">
+            <div><span class="eyebrow">SPRITE DATA</span><h2>Scanline settings</h2></div>
+          </div>
+          <p class="hint">Set the palette slot per line for both sprites. CC belongs to Sprite 1; the last column shows the OR color code.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Y</th><th>Sprite 0</th><th>Sprite 1</th><th title="CC: Sprite 1 shares priority and ORs its color code with Sprite 0 on overlap">CC</th><th title="IC: this line does not conflict with other sprites">IC</th><th title="EC: shift 32 pixels left">EC</th><th>CC OR</th></tr></thead>
+              <tbody id="scanline-rows"></tbody>
+            </table>
+          </div>
+          <div class="legend"><b>CC</b> overlap: OR color codes <span>·</span> <b>IC</b> ignore sprite conflicts <span>·</span> <b>EC</b> shift left 32 px</div>
+          <p class="warning">Palette data is included in the C export. Palette slot 0 is transparent for sprites by default.</p>
+        </aside>
+        <section class="export-panel panel movable-panel" data-panel="export">
+        <div class="panel-heading window-handle"><div><span class="eyebrow">MSXGL / C</span><h2>Generated data</h2></div><span id="export-status" class="hint">Edit the sprite to refresh output.</span></div>
+        <pre id="export-output"><code></code></pre>
+        </section>
+      </section>
+    </main>
+    <dialog id="palette-picker" class="palette-picker">
+      <div class="picker-heading">
+        <div><span class="eyebrow">V9938 COLOR PICKER</span><h2>Edit palette slot <span id="picker-slot-number">01</span></h2></div>
+        <button id="close-picker" class="secondary" type="button" aria-label="Close color picker">Close</button>
+      </div>
+      <div class="picker-controls">
+        <div class="rgb-sliders">
+          <label>Red <output id="red-value">0</output><input id="red-slider" type="range" min="0" max="7" step="1" value="0"></label>
+          <label>Green <output id="green-value">0</output><input id="green-slider" type="range" min="0" max="7" step="1" value="0"></label>
+          <label>Blue <output id="blue-value">0</output><input id="blue-slider" type="range" min="0" max="7" step="1" value="0"></label>
+        </div>
+        <div class="picker-preview"><span id="picker-swatch"></span><code id="picker-hex">#000000</code></div>
+      </div>
+      <p class="hint">512 RGB colors · 3 bits per channel · select a square or adjust the sliders.</p>
+      <div id="rgb-cube" class="rgb-cube"></div>
+    </dialog>
+  </body>
+</html>
