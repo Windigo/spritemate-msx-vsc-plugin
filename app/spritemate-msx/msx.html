@@ -52,11 +52,23 @@
                 <option value="16" selected>16 × 16</option>
               </select>
             </label>
+            <label class="size-picker">Mode
+              <select id="sprite-mode">
+                <option value="single">Single sprite</option>
+                <option value="pair" selected>Sprite pair + CC</option>
+              </select>
+            </label>
           </div>
-          <p class="hint">Choose a sprite and draw with click or drag. The other sprite stays visible as a translucent guide.</p>
+          <p class="hint">Choose a sprite and draw with click or drag. In pair mode, the other sprite stays visible as a translucent guide.</p>
           <div class="layer-picker" role="group" aria-label="Sprite to draw">
             <button class="layer-button active" type="button" data-layer="0" aria-pressed="true">Sprite 0 · base</button>
             <button class="layer-button" type="button" data-layer="1" aria-pressed="false">Sprite 1 · CC overlay</button>
+          </div>
+          <div class="onion-controls">
+            <label><input id="onion-skin" type="checkbox" /> Onion skin</label>
+            <label for="onion-opacity">Opacity <output id="onion-opacity-value">25%</output></label>
+            <input id="onion-opacity" type="range" min="10" max="60" step="5" value="25" />
+            <span class="hint"><i class="onion-key previous"></i> previous <i class="onion-key next"></i> next</span>
           </div>
           <div class="canvas-wrap">
             <div class="canvas-stage">
@@ -66,16 +78,38 @@
             </div>
           </div>
           <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span>The overlap preview shows the final CC color.</span></div>
+          <div class="frame-editor-controls">
+            <div class="frame-editor-heading"><strong>Animation frames</strong><span class="hint">Click to edit · orange outline = preview</span></div>
+            <div class="frame-actions">
+              <button id="frame-new" class="secondary" type="button">New blank</button>
+              <button id="frame-duplicate" class="secondary" type="button">Duplicate</button>
+              <button id="frame-move-left" class="secondary" type="button" aria-label="Move frame left" title="Move frame left">←</button>
+              <button id="frame-move-right" class="secondary" type="button" aria-label="Move frame right" title="Move frame right">→</button>
+              <button id="frame-delete" class="secondary" type="button">Delete</button>
+            </div>
+            <div id="frame-strip" class="frame-strip" role="group" aria-label="Animation frames"></div>
+          </div>
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
-          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2>Overlap preview</h2></div></div>
+          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Overlap preview</h2></div></div>
           <div class="preview-layout">
             <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
             <div class="preview-details">
-              <p class="hint">The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.</p>
+              <p id="preview-hint" class="hint">The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.</p>
               <strong id="overlap-formula">P02 OR P04 = P06</strong>
               <div class="preview-result"><span id="overlap-swatch"></span><span id="overlap-color">P06</span></div>
             </div>
+          </div>
+          <div class="animation-controls">
+            <button id="animation-play" class="secondary" type="button" aria-pressed="false">Play</button>
+            <label for="frame-duration">Frame time <output id="frame-duration-value">180 ms</output></label>
+            <input id="frame-duration" type="range" min="80" max="1000" step="20" value="180" />
+            <label for="animation-playback-mode">Playback</label>
+            <select id="animation-playback-mode" aria-label="Playback mode">
+              <option value="loop">Loop</option>
+              <option value="pingpong">Ping-pong</option>
+            </select>
+            <span id="animation-frame-label" class="hint">Frame 1 / 1</span>
           </div>
         </section>
         <section class="cc-map-panel panel movable-panel" data-panel="cc-map">

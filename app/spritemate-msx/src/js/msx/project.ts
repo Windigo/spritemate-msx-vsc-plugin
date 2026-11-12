@@ -23,6 +23,11 @@ export interface Msx2Project {
   /** Sixteen palette register values, each packed as a 9-bit RRR-GGG-BBB color. */
   palette: number[];
   sprites: Msx2Sprite[];
+  /** Optional fields keep old one-frame project files compatible. */
+  spriteMode?: "single" | "pair";
+  animationFrames?: Msx2Sprite[][];
+  frameDurationMs?: number;
+  currentFrameIndex?: number;
 }
 
 export function createMsx2Sprite(name: string, size: SpriteSize): Msx2Sprite {

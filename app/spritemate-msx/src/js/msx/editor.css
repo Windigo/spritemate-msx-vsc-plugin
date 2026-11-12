@@ -70,6 +70,7 @@ main{max-width:none;width:100%;margin:0}
 .export-panel{display:flex;flex-direction:column;min-height:150px}
 .export-panel pre{flex:1 1 auto;min-height:80px;max-height:none;margin:10px 0 0;white-space:pre;overflow:auto}
 .syntax-comment{color:#8296a7}
+.syntax-comment.current-frame-source{color:#b4f2dd;background:#19332c;border-radius:2px}
 .syntax-keyword{color:#83b7ff}
 .syntax-number{color:#f4c879}
 @media(max-width:960px){.export-panel pre{flex:0 1 auto;max-height:45vh;min-height:180px}}
@@ -82,11 +83,43 @@ main{max-width:none;width:100%;margin:0}
 .cc-map-cell{text-shadow:0 1px 2px #000b;cursor:help}
 .cc-map-cell:hover{outline:2px solid #fff;outline-offset:1px;position:relative;z-index:1}
 @media (min-width:961px){
-  .workspace{height:1810px}
-  .cc-map-panel{position:absolute;left:0;top:987px;width:calc(54% - 8px);height:560px;resize:both;overflow:auto}
-  .export-panel{left:0;top:1563px;width:100%;height:220px}
+  .workspace{height:1960px}
+  .preview-panel{height:420px}
+  .cc-map-panel{position:absolute;left:0;top:1122px;width:calc(54% - 8px);height:560px;resize:both;overflow:auto}
+  .export-panel{left:0;top:1698px;width:100%;height:220px}
 }
-@media (max-width:960px){.cc-map-panel{position:static!important;width:auto!important;height:auto!important;min-width:0;resize:none;overflow:visible}.cc-map-grid{grid-template-columns:32px repeat(16,minmax(23px,1fr))}}
+@media (max-width:960px){.cc-map-panel{position:static!important;width:auto!important;height:auto!important;min-width:0;resize:none;overflow:visible}.cc-map-grid{grid-template-columns:32px repeat(16,minmax(23px,1fr))}.animation-controls{grid-template-columns:auto auto minmax(50px,1fr) auto auto}#animation-frame-label{grid-column:1/-1;text-align:left}}
 .window-collapse{flex:0 0 auto;min-width:28px;padding:2px 7px;margin-left:auto;color:var(--accent);font:600 17px/1 'DM Mono',monospace}
 .movable-panel.collapsed{height:auto!important;min-height:0!important;resize:none!important;overflow:hidden!important;padding-bottom:10px}
 .movable-panel.collapsed .window-handle~*{display:none!important}
+.animation-controls{display:grid;grid-template-columns:auto auto minmax(70px,1fr) auto;align-items:center;gap:8px;margin-top:12px}
+.animation-controls button{padding:7px 11px}
+.animation-controls #animation-frame-label{grid-column:1/-1;text-align:left;white-space:normal}
+.animation-controls label{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);white-space:nowrap}
+.animation-controls output{font:10px 'DM Mono',monospace;color:#dce5ef}
+.animation-controls select{min-width:92px;padding:6px 7px;font-size:10px}
+#frame-duration{width:100%;min-width:50px;accent-color:var(--accent)}
+#animation-frame-label{margin:0;text-align:right;white-space:nowrap}
+.frame-editor-controls{margin-top:11px;padding-top:9px;border-top:1px solid var(--line)}
+.frame-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.frame-editor-heading strong{font-size:11px}
+.frame-editor-heading .hint{margin:0;font-size:9px}
+.frame-actions{display:flex;gap:6px;margin-top:7px}
+.frame-actions button{padding:6px 9px;font-size:10px}
+.frame-strip{display:flex;gap:5px;min-height:29px;overflow-x:auto;margin-top:6px;padding:2px 2px 4px}
+.frame-button{position:relative;flex:0 0 36px;padding:5px;font:10px 'DM Mono',monospace}
+.frame-button.editing{color:#09231b;background:#b4f2dd;border-color:#b4f2dd}
+.frame-button.playing{outline:2px solid #ffad71;outline-offset:1px;z-index:1}
+.frame-button.editing.playing{outline-color:#f18a46}
+button:disabled{opacity:.45;cursor:not-allowed}
+.onion-controls{display:grid;grid-template-columns:auto auto minmax(60px,1fr) auto;align-items:center;gap:8px;margin:-5px 0 11px}
+.onion-controls label{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);white-space:nowrap}
+.onion-controls input[type=checkbox]{accent-color:var(--accent)}
+.onion-controls output{font:10px 'DM Mono',monospace;color:#dce5ef}
+#onion-opacity{width:100%;min-width:50px;accent-color:var(--accent)}
+.onion-controls .hint{margin:0;white-space:nowrap}
+.onion-key{display:inline-block;width:7px;height:7px;margin-left:4px;border-radius:50%}
+.onion-key.previous{background:#5bbaff}.onion-key.next{background:#ff936a}
+body.single-sprite .layer-button[data-layer="1"],body.single-sprite #overlay-row-guide,body.single-sprite .cc-map-panel{display:none!important}
+body.single-sprite .canvas-stage{grid-template-columns:48px minmax(0,400px)}
+body.single-sprite .scanline-panel th:nth-child(3),body.single-sprite .scanline-panel td:nth-child(3),body.single-sprite .scanline-panel th:nth-child(4),body.single-sprite .scanline-panel td:nth-child(4),body.single-sprite .scanline-panel th:nth-child(7),body.single-sprite .scanline-panel td:nth-child(7){display:none}

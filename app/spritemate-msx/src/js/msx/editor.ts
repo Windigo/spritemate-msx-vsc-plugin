@@ -1,5 +1,5 @@
 import { colorIndexToCss, colorIndexToHex, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx2ProjectC } from "./exportC";
+import { exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
@@ -11,6 +11,7 @@ import type { SpriteSize } from "./hardware";
 const canvas = document.querySelector<HTMLCanvasElement>("#sprite-canvas")!;
 const context = canvas.getContext("2d")!;
 const sizePicker = document.querySelector<HTMLSelectElement>("#sprite-size")!;
+const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
 const rowsElement = document.querySelector<HTMLTableSectionElement>("#scanline-rows")!;
 const paletteSlotsElement = document.querySelector<HTMLDivElement>("#palette-slots")!;
 const ccMapElement = document.querySelector<HTMLDivElement>("#cc-map-grid")!;
@@ -24,6 +25,14 @@ const previewContext = previewCanvas.getContext("2d")!;
 const overlapFormula = document.querySelector<HTMLElement>("#overlap-formula")!;
 const overlapSwatch = document.querySelector<HTMLElement>("#overlap-swatch")!;
 const overlapColor = document.querySelector<HTMLElement>("#overlap-color")!;
+const previewTitle = document.querySelector<HTMLElement>("#preview-title")!;
+const previewHint = document.querySelector<HTMLElement>("#preview-hint")!;
+const frameStrip = document.querySelector<HTMLDivElement>("#frame-strip")!;
+const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
+const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
+const frameDurationValue = document.querySelector<HTMLOutputElement>("#frame-duration-value")!;
+const animationFrameLabel = document.querySelector<HTMLElement>("#animation-frame-label")!;
+const playbackModePicker = document.querySelector<HTMLSelectElement>("#animation-playback-mode")!;
 const layerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".layer-button"));
 const picker = document.querySelector<HTMLDialogElement>("#palette-picker")!;
 const rgbCube = document.querySelector<HTMLDivElement>("#rgb-cube")!;
@@ -45,6 +54,14 @@ let selectedRow = 0;
 let selectedPaletteSlot = 1;
 let selectedLayer = 0;
 let drawing = false;
+let spriteMode: "single" | "pair" = "pair";
+let animationFrames = [project.sprites];
+let currentFrameIndex = 0;
+let previewFrameIndex = 0;
+let frameDurationMs = 180;
+let playbackTimer: number | null = null;
+let playbackMode: "loop" | "pingpong" = "loop";
+let playbackDirection: 1 | -1 = 1;
 
 const layoutKey = "spritemate-msx2-window-layout";
 const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel"));
@@ -110,6 +127,15 @@ function setupWindowLayout(): void {
   }
   if (!saved["cc-map"] && saved.export && (saved.export.top === 987 || saved.export.top === 1242)) {
     saved.export = { ...saved.export, top: 1563 };
+  }
+  if (saved.preview?.left === 0 && saved.preview.top === 686 && saved.preview.height === 285) {
+    saved.preview = { ...saved.preview, height: 420 };
+  }
+  if (saved["cc-map"]?.left === 0 && saved["cc-map"].top === 987) {
+    saved["cc-map"] = { ...saved["cc-map"], top: 1122 };
+  }
+  if (saved.export?.left === 0 && saved.export.top === 1563) {
+    saved.export = { ...saved.export, top: 1698 };
   }
   if (window.innerWidth > 960) {
     for (const panel of panels) {
@@ -177,6 +203,130 @@ function activeSprite() {
   return project.sprites[selectedLayer];
 }
 
+function cloneFrame(frame: typeof project.sprites): typeof project.sprites {
+  return frame.map((sprite) => ({
+    name: sprite.name,
+    pixels: sprite.pixels.map((row) => [...row]),
+    scanlines: sprite.scanlines.map((line) => ({ ...line })),
+  }));
+}
+
+function stopPlayback(): void {
+  if (playbackTimer !== null) window.clearInterval(playbackTimer);
+  playbackTimer = null;
+  previewFrameIndex = currentFrameIndex;
+  playbackDirection = 1;
+  playButton.textContent = "Play";
+  playButton.setAttribute("aria-pressed", "false");
+}
+
+function updateAnimationFrameLabel(): void {
+  const previewIndex = playbackTimer === null ? currentFrameIndex : previewFrameIndex;
+  animationFrameLabel.textContent = playbackTimer === null
+    ? `Editing frame ${currentFrameIndex + 1} / ${animationFrames.length} · ${frameDurationMs} ms`
+    : `Editing frame ${currentFrameIndex + 1} · Preview ${previewIndex + 1} / ${animationFrames.length} · ${frameDurationMs} ms · Playing`;
+}
+
+function renderFrameStrip(): void {
+  if (frameStrip.childElementCount !== animationFrames.length) {
+    frameStrip.replaceChildren();
+    animationFrames.forEach((_, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "frame-button";
+      button.textContent = String(index + 1).padStart(2, "0");
+      button.addEventListener("click", () => {
+        currentFrameIndex = index;
+        project.sprites = animationFrames[index];
+        // Keep playback running. The selected frame is edited on the main
+        // canvas while the preview keeps following its independent playhead.
+        render();
+      });
+      frameStrip.append(button);
+    });
+  }
+
+  Array.from(frameStrip.querySelectorAll<HTMLButtonElement>(".frame-button")).forEach((button, index) => {
+    const isEditing = index === currentFrameIndex;
+    const isPlaying = playbackTimer !== null && index === previewFrameIndex;
+    button.classList.toggle("editing", isEditing);
+    button.classList.toggle("playing", isPlaying);
+    button.setAttribute("aria-pressed", String(isEditing));
+    button.setAttribute("aria-label", `Frame ${index + 1}${isEditing ? ", selected for editing" : ""}${isPlaying ? ", shown in preview" : ""}`);
+    button.title = `Select frame ${index + 1} to edit${isPlaying ? " · currently in preview" : ""}`;
+  });
+
+  updateAnimationFrameLabel();
+  playButton.disabled = animationFrames.length < 2;
+  document.querySelector<HTMLButtonElement>("#frame-delete")!.disabled = animationFrames.length < 2;
+  document.querySelector<HTMLButtonElement>("#frame-new")!.disabled = animationFrames.length >= 64;
+  document.querySelector<HTMLButtonElement>("#frame-duplicate")!.disabled = animationFrames.length >= 64;
+}
+
+function addAnimationFrame(blank: boolean): void {
+  if (animationFrames.length >= 64) return;
+  stopPlayback();
+  const sprites = blank ? createMsx2Project(project.spriteSize).sprites : cloneFrame(project.sprites);
+  animationFrames.splice(currentFrameIndex + 1, 0, sprites);
+  currentFrameIndex++;
+  project.sprites = sprites;
+  render();
+}
+
+function deleteAnimationFrame(): void {
+  if (animationFrames.length < 2) return;
+  stopPlayback();
+  animationFrames.splice(currentFrameIndex, 1);
+  currentFrameIndex = Math.min(currentFrameIndex, animationFrames.length - 1);
+  project.sprites = animationFrames[currentFrameIndex];
+  render();
+}
+
+function togglePlayback(): void {
+  if (playbackTimer !== null) {
+    stopPlayback();
+    renderFrameStrip();
+    renderPreview();
+    return;
+  }
+  if (animationFrames.length < 2) return;
+  previewFrameIndex = currentFrameIndex;
+  playButton.textContent = "Pause";
+  playButton.setAttribute("aria-pressed", "true");
+  // Advance immediately so Play has visible feedback without waiting for the
+  // first frame interval, then keep looping at the selected frame duration.
+  advancePreview();
+  playbackTimer = window.setInterval(advancePreview, frameDurationMs);
+  renderFrameStrip();
+  renderPreview();
+}
+
+function advancePreview(): void {
+  if (playbackMode === "loop") {
+    previewFrameIndex = (previewFrameIndex + 1) % animationFrames.length;
+  } else {
+    let nextIndex = previewFrameIndex + playbackDirection;
+    if (nextIndex >= animationFrames.length) {
+      playbackDirection = -1;
+      nextIndex = animationFrames.length - 2;
+    } else if (nextIndex < 0) {
+      playbackDirection = 1;
+      nextIndex = 1;
+    }
+    previewFrameIndex = nextIndex;
+  }
+  renderFrameStrip();
+  renderPreview();
+}
+
+function setSpriteMode(mode: "single" | "pair"): void {
+  stopPlayback();
+  spriteMode = mode;
+  if (spriteMode === "single" && selectedLayer === 1) selectedLayer = 0;
+  modePicker.value = spriteMode;
+  render();
+}
+
 function renderRowColorGuides(): void {
   const base = project.sprites[0];
   const overlay = project.sprites[1];
@@ -224,7 +374,7 @@ function renderCanvas(): void {
   const size = project.spriteSize;
   const scale = 24;
   const selected = activeSprite();
-  const guide = project.sprites[1 - selectedLayer];
+  const guide = spriteMode === "pair" ? project.sprites[1 - selectedLayer] : selected;
   canvas.width = size * scale;
   canvas.height = size * scale;
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -234,7 +384,7 @@ function renderCanvas(): void {
       const py = y * scale;
       context.fillStyle = (x + y) % 2 ? "#18212b" : "#202c38";
       context.fillRect(px, py, scale, scale);
-      const guidePixel = guide.pixels[y][x] !== 0 && guide.scanlines[y].color !== 0;
+      const guidePixel = spriteMode === "pair" && guide.pixels[y][x] !== 0 && guide.scanlines[y].color !== 0;
       const selectedPixel = selected.pixels[y][x] !== 0 && selected.scanlines[y].color !== 0;
       if (guidePixel) {
         context.globalAlpha = 0.45;
@@ -263,19 +413,20 @@ function renderCanvas(): void {
 }
 
 function renderPreview(): void {
+  const previewSprites = animationFrames[playbackTimer === null ? currentFrameIndex : previewFrameIndex] || project.sprites;
   const size = project.spriteSize;
   const scale = 12;
   previewCanvas.width = size * scale;
   previewCanvas.height = size * scale;
   for (let y = 0; y < size; y++) {
-    const base = project.sprites[0];
-    const overlay = project.sprites[1];
+    const base = previewSprites[0];
+    const overlay = previewSprites[1];
     const baseColor = base.scanlines[y].color;
     const overlayColor = overlay.scanlines[y].color;
     for (let x = 0; x < size; x++) {
       let color = 0;
       const basePixel = base.pixels[y][x] !== 0 && baseColor !== 0;
-      const overlayPixel = overlay.pixels[y][x] !== 0 && overlayColor !== 0;
+      const overlayPixel = spriteMode === "pair" && overlay.pixels[y][x] !== 0 && overlayColor !== 0;
       if (basePixel && overlayPixel) color = overlay.scanlines[y].overlapMix ? baseColor | overlayColor : baseColor;
       else if (basePixel) color = baseColor;
       else if (overlayPixel) color = overlayColor;
@@ -285,21 +436,31 @@ function renderPreview(): void {
       previewContext.fillRect(x * scale, y * scale, scale, scale);
     }
   }
-  const baseColor = project.sprites[0].scanlines[selectedRow].color;
-  const overlayLine = project.sprites[1].scanlines[selectedRow];
-  const result = overlayLine.overlapMix ? baseColor | overlayLine.color : baseColor;
+  const baseColor = previewSprites[0].scanlines[selectedRow].color;
+  const overlayLine = previewSprites[1].scanlines[selectedRow];
+  const result = spriteMode === "single" ? baseColor : overlayLine.overlapMix ? baseColor | overlayLine.color : baseColor;
   const code = (value: number) => `P${String(value).padStart(2, "0")}`;
   const bits = (value: number) => value.toString(2).padStart(4, "0");
-  overlapFormula.textContent = overlayLine.overlapMix
-    ? `${code(baseColor)} (${bits(baseColor)}) OR ${code(overlayLine.color)} (${bits(overlayLine.color)}) = ${code(result)} (${bits(result)})`
-    : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
+  overlapFormula.textContent = spriteMode === "single"
+    ? `Sprite 0 · ${code(baseColor)} (${bits(baseColor)})`
+    : overlayLine.overlapMix
+      ? `${code(baseColor)} (${bits(baseColor)}) OR ${code(overlayLine.color)} (${bits(overlayLine.color)}) = ${code(result)} (${bits(result)})`
+      : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
   overlapSwatch.style.backgroundColor = colorIndexToCss(project.palette[result]);
   overlapColor.textContent = `${code(result)} · ${colorIndexToHex(project.palette[result])}`;
+  const previewIndex = playbackTimer === null ? currentFrameIndex : previewFrameIndex;
+  updateAnimationFrameLabel();
 }
 
 function renderOutput(): void {
   try {
-    const source = exportMsx2ProjectC(project.sprites, project.spriteSize, project.palette);
+    const source = exportMsx2AnimationC(
+      animationFrames,
+      spriteMode === "single" ? 1 : 2,
+      project.spriteSize,
+      project.palette,
+      frameDurationMs,
+    );
     const fragment = document.createDocumentFragment();
     const tokens = /(\/\*[\s\S]*?\*\/)|\b(const|u8)\b|\b0x[\da-fA-F]+\b|\b\d+\b/g;
     let cursor = 0;
@@ -308,14 +469,21 @@ function renderOutput(): void {
       if (index > cursor) fragment.append(document.createTextNode(source.slice(cursor, index)));
       const token = match[0];
       const span = document.createElement("span");
-      span.className = token.startsWith("/*") ? "syntax-comment" : token === "const" || token === "u8" ? "syntax-keyword" : "syntax-number";
+      if (token.startsWith("/*")) {
+        const activeFrameMarker = `/* Animation frame ${currentFrameIndex + 1}, Sprite 0:`;
+        span.className = token.startsWith(activeFrameMarker)
+          ? "syntax-comment current-frame-source"
+          : "syntax-comment";
+      } else {
+        span.className = token === "const" || token === "u8" ? "syntax-keyword" : "syntax-number";
+      }
       span.textContent = token;
       fragment.append(span);
       cursor = index + token.length;
     }
     if (cursor < source.length) fragment.append(document.createTextNode(source.slice(cursor)));
     output.replaceChildren(fragment);
-    status.textContent = `${project.spriteSize}×${project.spriteSize} · two sprites and 16-slot palette data`;
+    status.textContent = `Editing frame ${currentFrameIndex + 1}/${animationFrames.length} · ${project.spriteSize}×${project.spriteSize} · ${spriteMode === "single" ? "one sprite" : "sprite pair"}`;
   } catch (error) {
     output.textContent = "";
     status.textContent = error instanceof Error ? error.message : "Could not encode sprite.";
@@ -560,6 +728,12 @@ function openPalettePicker(slot: number): void {
 }
 
 function render(): void {
+  document.body.classList.toggle("single-sprite", spriteMode === "single");
+  previewTitle.textContent = spriteMode === "single" ? "Sprite preview" : "Overlap preview";
+  previewHint.textContent = spriteMode === "single"
+    ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
+    : "The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.";
+  modePicker.value = spriteMode;
   layerButtons.forEach((button, index) => {
     button.classList.toggle("active", index === selectedLayer);
     button.setAttribute("aria-pressed", String(index === selectedLayer));
@@ -568,6 +742,7 @@ function render(): void {
   renderRows();
   renderCanvas();
   renderPreview();
+  renderFrameStrip();
   renderOutput();
 }
 
@@ -594,6 +769,28 @@ layerButtons.forEach((button, index) => button.addEventListener("click", () => {
   selectedLayer = index;
   render();
 }));
+modePicker.addEventListener("change", () => setSpriteMode(modePicker.value as "single" | "pair"));
+playButton.addEventListener("click", togglePlayback);
+playbackModePicker.addEventListener("change", () => {
+  playbackMode = playbackModePicker.value as "loop" | "pingpong";
+  playbackDirection = 1;
+  renderFrameStrip();
+  renderPreview();
+});
+document.querySelector<HTMLButtonElement>("#frame-new")!.addEventListener("click", () => addAnimationFrame(true));
+document.querySelector<HTMLButtonElement>("#frame-duplicate")!.addEventListener("click", () => addAnimationFrame(false));
+document.querySelector<HTMLButtonElement>("#frame-delete")!.addEventListener("click", deleteAnimationFrame);
+frameDuration.addEventListener("input", () => {
+  frameDurationMs = Number(frameDuration.value);
+  frameDurationValue.textContent = `${frameDurationMs} ms`;
+  if (playbackTimer !== null) {
+    window.clearInterval(playbackTimer);
+    playbackTimer = window.setInterval(advancePreview, frameDurationMs);
+  }
+  renderFrameStrip();
+  renderPreview();
+  renderOutput();
+});
 
 canvas.addEventListener("pointerdown", (event) => {
   drawing = true;
@@ -608,21 +805,28 @@ canvas.addEventListener("pointercancel", () => { drawing = false; });
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
 sizePicker.addEventListener("change", () => {
+  stopPlayback();
   const size = Number(sizePicker.value) as SpriteSize;
   const palette = project.palette;
   project = createMsx2Project(size);
   project.palette = palette;
+  animationFrames = [project.sprites];
+  currentFrameIndex = 0;
   selectedLayer = 0;
   selectedRow = 0;
   render();
 });
 
 document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
-  download("sprite-pair.msxproj", JSON.stringify(project, null, 2), "application/json");
+  project.spriteMode = spriteMode;
+  project.animationFrames = animationFrames;
+  project.frameDurationMs = frameDurationMs;
+  project.currentFrameIndex = currentFrameIndex;
+  download("sprite-animation.msxproj", JSON.stringify(project, null, 2), "application/json");
 });
 
 document.querySelector<HTMLButtonElement>("#export-c")!.addEventListener("click", () => {
-  download("sprite-pair.h", exportMsx2ProjectC(project.sprites, project.spriteSize, project.palette), "text/x-c");
+  download("sprite-animation.h", exportMsx2AnimationC(animationFrames, spriteMode === "single" ? 1 : 2, project.spriteSize, project.palette, frameDurationMs), "text/x-c");
 });
 
 document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("change", async (event) => {
@@ -636,22 +840,48 @@ document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("cha
     }
     const size = loaded.spriteSize;
     if (!Array.isArray(loaded.sprites) || !loaded.sprites.length) throw new Error("Project has no sprites.");
-    const sprites = loaded.sprites.slice(0, 2).map((sprite) => normalizeMsx2Sprite(sprite, size));
-    if (sprites.some((sprite) => sprite.pixels.length !== size || sprite.pixels.some((row) => row.length !== size))) {
-      throw new Error("Project sprite dimensions do not match the selected size.");
-    }
-    if (sprites.length === 1) sprites.push(createMsx2Project(size).sprites[1]);
+    const normalizeFrame = (rawSprites: unknown): typeof project.sprites => {
+      if (!Array.isArray(rawSprites) || rawSprites.length < 1 || rawSprites.length > 2) {
+        throw new Error("Each animation frame must contain one or two sprites.");
+      }
+      const sprites = rawSprites.map((sprite) => normalizeMsx2Sprite(sprite as Msx2Project["sprites"][number], size));
+      if (sprites.some((sprite) => sprite.pixels.length !== size || sprite.pixels.some((row) => !Array.isArray(row) || row.length !== size))) {
+        throw new Error("Project sprite dimensions do not match the selected size.");
+      }
+      if (sprites.length === 1) sprites.push(createMsx2Project(size).sprites[1]);
+      return sprites;
+    };
+    const sourceFrames = Array.isArray(loaded.animationFrames) && loaded.animationFrames.length
+      ? loaded.animationFrames
+      : [loaded.sprites];
+    if (sourceFrames.length > 64) throw new Error("Animations can contain up to 64 frames.");
+    animationFrames = sourceFrames.map(normalizeFrame);
+    currentFrameIndex = Math.max(0, Math.min(
+      Number.isInteger(loaded.currentFrameIndex) ? loaded.currentFrameIndex! : 0,
+      animationFrames.length - 1,
+    ));
+    const loadedFrameDuration = Number(loaded.frameDurationMs);
+    frameDurationMs = Number.isFinite(loadedFrameDuration)
+      ? Math.round(Math.max(80, Math.min(1000, loadedFrameDuration)) / 20) * 20
+      : 180;
+    frameDuration.value = String(frameDurationMs);
+    frameDurationValue.textContent = `${frameDurationMs} ms`;
+    spriteMode = loaded.spriteMode === "single" || loaded.spriteMode === "pair"
+      ? loaded.spriteMode
+      : loaded.sprites.length === 1 ? "single" : "pair";
+    modePicker.value = spriteMode;
     project = {
       format: "spritemate-msx",
       version: 1,
       target: "msx2-v9938-sm2",
       spriteSize: size,
       palette: normalizeMsx2Palette(loaded.palette),
-      sprites,
+      sprites: animationFrames[currentFrameIndex],
     };
     sizePicker.value = String(size);
     selectedLayer = 0;
     selectedRow = 0;
+    stopPlayback();
     render();
     status.textContent = `Loaded ${file.name}`;
   } catch (error) {

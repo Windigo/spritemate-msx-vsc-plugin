@@ -8,6 +8,10 @@ The canvas, overlap preview, palette, scanline settings, and C output are separa
 
 Choose **Sprite 0 · base** or **Sprite 1 · CC overlay** before drawing. Both sprites are previewed at the same position. Where their opaque pixels overlap, CC on sprite 1 ORs the two 4-bit palette slot numbers; the result selects the third palette slot. For example, P02 OR P04 = P06. The C export includes both pattern and color tables in sprite priority order, followed by the 16 palette registers. The preview assumes both sprites share a position and EC is off.
 
+## Animation
+
+Choose **Single sprite** or **Sprite pair + CC** in the editor. In the existing preview window, add a blank frame, duplicate the selected frame, or delete it; click a numbered frame to edit it. **Play** animates the preview, and **Frame time** sets the delay in milliseconds. `.msxproj` files preserve the mode, frames, selected frame, and timing. C export contains each frame's pattern/color arrays, a frame table, and the shared palette once.
+
 ## Run locally
 
 ```sh
