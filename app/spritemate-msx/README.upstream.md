@@ -1,3 +1,7 @@
+# Archived upstream documentation
+
+This is the original Spritemate documentation, retained as source attribution and historical reference. The active MSX2 editor is `msx.html` and uses the independent implementation in `src/js/msx/`.
+
 # Spritemate
 Spritemate is a modern sprite editor for the Commodore 64. It works with most modern browsers on Windows, Mac and Linux and is pure JavaScript and HTML - no plugins. All data is processed on client side only. Spritemate supports importing and exporting of the most common file formats for the Commodore 64 (e.g. SpritePad) and can be used as viewer and editor on almost any device with a browser.
 

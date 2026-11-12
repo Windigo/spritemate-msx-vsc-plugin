@@ -1,6 +1,6 @@
-# Spritemate MSX2 Sprite Editor (VS Code)
+# Spritemate MSX Sprite Editor (VS Code)
 
-Standalone MSX2-focused fork and VS Code extension. This repository is separate from the C64 `spritemate-vsc-plugin` project.
+Standalone MSX2 sprite editor and VS Code extension, maintained as its own project and codebase.
 
 The editor targets V9938 Sprite Mode 2 and supports 8×8 and 16×16 sprites, per-scanline palette slots, and the EC/CC/IC sprite color-table flags. The V9938 has 16 programmable palette registers, each selecting one of 512 RGB colors. Slot 0 is transparent for sprites by default. CC joins a sprite to the priority group of the nearest preceding sprite with CC clear; sprites in the same group combine overlapping color codes with a logical OR. The editor saves `.msxproj` JSON projects and exports sprite data and palette register bytes as C arrays.
 
@@ -27,6 +27,8 @@ npm run dev:msx
 ```
 
 Then install the generated `.vsix` in VS Code. Open the editor with **Spritemate MSX: Open Sprite Editor** or `Ctrl+Alt+M` (`Cmd+Alt+M` on macOS).
+
+The extension version in the root `package.json` is the single source of truth. The build synchronizes it to the editor package and lockfile.
 
 ## Project layout
 

@@ -20,7 +20,7 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Spritemate MSX2</title>
+    <title>MSX Sprite Editor</title>
     <link rel="stylesheet" href="./src/js/msx/editor.css" />
     <script type="module" src="./src/js/msx/editor.ts"></script>
   </head>
@@ -28,7 +28,7 @@
     <header class="topbar">
       <div>
         <span class="eyebrow">SPRITEMATE FORK</span>
-        <h1>MSX2 Sprite Editor</h1>
+        <h1>MSX Sprite Editor <span id="editor-version"></span></h1>
       </div>
       <div class="actions">
         <button id="show-info" class="secondary" type="button">Info</button>
@@ -92,7 +92,7 @@
           </div>
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
-          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Overlap preview</h2></div></div>
+          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Sprite &amp; animation preview</h2></div></div>
           <div class="preview-layout">
             <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
             <div class="preview-details">
@@ -168,7 +168,7 @@
     </dialog>
     <dialog id="info-dialog" class="info-dialog" aria-labelledby="info-title">
       <div class="picker-heading">
-        <div><span class="eyebrow">ABOUT THIS EDITOR</span><h2 id="info-title">Spritemate MSX2</h2></div>
+        <div><span class="eyebrow">ABOUT THIS EDITOR</span><h2 id="info-title">Spritemate MSX</h2></div>
         <button id="close-info" class="secondary" type="button">Close</button>
       </div>
       <div class="info-content">

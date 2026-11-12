@@ -4,6 +4,9 @@ cd "$(dirname "$0")"
 
 APP_DIR="app/spritemate-msx"
 
+echo "==> Synchronizing editor and extension versions"
+node scripts/sync-versions.js
+
 echo "==> Installing and building the MSX2 editor"
 (cd "$APP_DIR" && npm ci && npm run build)
 

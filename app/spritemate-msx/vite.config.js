@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const extensionPackage = JSON.parse(readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
 const noCacheHeaders = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
   Pragma: 'no-cache',
@@ -11,6 +13,9 @@ const noCacheHeaders = {
 };
 
 export default defineConfig({
+  define: {
+    __SPRITEMATE_VERSION__: JSON.stringify(extensionPackage.version),
+  },
   publicDir: false,
   plugins: [{
     name: 'disable-editor-dev-cache',

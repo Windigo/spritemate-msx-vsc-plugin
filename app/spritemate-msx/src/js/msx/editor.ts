@@ -8,10 +8,13 @@ import {
 } from "./project";
 import type { SpriteSize } from "./hardware";
 
+declare const __SPRITEMATE_VERSION__: string;
+
 const canvas = document.querySelector<HTMLCanvasElement>("#sprite-canvas")!;
 const context = canvas.getContext("2d")!;
 const sizePicker = document.querySelector<HTMLSelectElement>("#sprite-size")!;
 const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
+const editorVersion = document.querySelector<HTMLElement>("#editor-version")!;
 const rowsElement = document.querySelector<HTMLTableSectionElement>("#scanline-rows")!;
 const paletteSlotsElement = document.querySelector<HTMLDivElement>("#palette-slots")!;
 const ccMapElement = document.querySelector<HTMLDivElement>("#cc-map-grid")!;
@@ -25,7 +28,6 @@ const previewContext = previewCanvas.getContext("2d")!;
 const overlapFormula = document.querySelector<HTMLElement>("#overlap-formula")!;
 const overlapSwatch = document.querySelector<HTMLElement>("#overlap-swatch")!;
 const overlapColor = document.querySelector<HTMLElement>("#overlap-color")!;
-const previewTitle = document.querySelector<HTMLElement>("#preview-title")!;
 const previewHint = document.querySelector<HTMLElement>("#preview-hint")!;
 const frameStrip = document.querySelector<HTMLDivElement>("#frame-strip")!;
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
@@ -54,6 +56,8 @@ const channelOutputs = {
   b: document.querySelector<HTMLOutputElement>("#blue-value")!,
 };
 let project: Msx2Project;
+editorVersion.textContent = `v${__SPRITEMATE_VERSION__}`;
+document.title = `MSX Sprite Editor v${__SPRITEMATE_VERSION__}`;
 let selectedRow = 0;
 let selectedPaletteSlot = 1;
 let selectedLayer = 0;
@@ -316,6 +320,8 @@ function renderFrameStrip(): void {
   document.querySelector<HTMLButtonElement>("#frame-delete")!.disabled = animationFrames.length < 2;
   document.querySelector<HTMLButtonElement>("#frame-new")!.disabled = animationFrames.length >= 64;
   document.querySelector<HTMLButtonElement>("#frame-duplicate")!.disabled = animationFrames.length >= 64;
+  document.querySelector<HTMLButtonElement>("#frame-move-left")!.disabled = currentFrameIndex === 0;
+  document.querySelector<HTMLButtonElement>("#frame-move-right")!.disabled = currentFrameIndex === animationFrames.length - 1;
 }
 
 function addAnimationFrame(blank: boolean): void {
@@ -334,6 +340,17 @@ function deleteAnimationFrame(): void {
   animationFrames.splice(currentFrameIndex, 1);
   currentFrameIndex = Math.min(currentFrameIndex, animationFrames.length - 1);
   project.sprites = animationFrames[currentFrameIndex];
+  render();
+}
+
+function moveAnimationFrame(direction: -1 | 1): void {
+  const nextIndex = currentFrameIndex + direction;
+  if (nextIndex < 0 || nextIndex >= animationFrames.length) return;
+  stopPlayback();
+  const [frame] = animationFrames.splice(currentFrameIndex, 1);
+  animationFrames.splice(nextIndex, 0, frame);
+  currentFrameIndex = nextIndex;
+  project.sprites = frame;
   render();
 }
 
@@ -806,7 +823,6 @@ function openPalettePicker(slot: number): void {
 
 function render(): void {
   document.body.classList.toggle("single-sprite", spriteMode === "single");
-  previewTitle.textContent = spriteMode === "single" ? "Sprite preview" : "Overlap preview";
   previewHint.textContent = spriteMode === "single"
     ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
     : "The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.";
@@ -863,6 +879,8 @@ playbackModePicker.addEventListener("change", () => {
 document.querySelector<HTMLButtonElement>("#frame-new")!.addEventListener("click", () => addAnimationFrame(true));
 document.querySelector<HTMLButtonElement>("#frame-duplicate")!.addEventListener("click", () => addAnimationFrame(false));
 document.querySelector<HTMLButtonElement>("#frame-delete")!.addEventListener("click", deleteAnimationFrame);
+document.querySelector<HTMLButtonElement>("#frame-move-left")!.addEventListener("click", () => moveAnimationFrame(-1));
+document.querySelector<HTMLButtonElement>("#frame-move-right")!.addEventListener("click", () => moveAnimationFrame(1));
 frameDuration.addEventListener("input", () => {
   frameDurationMs = Number(frameDuration.value);
   frameDurationValue.textContent = `${frameDurationMs} ms`;

@@ -30,7 +30,7 @@ function getEditorHtml(webview, extensionUri) {
 function openEditor(context) {
   const panel = vscode.window.createWebviewPanel(
     VIEW_TYPE,
-    "Spritemate MSX2",
+    `MSX Sprite Editor v${require("./package.json").version}`,
     vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One,
     {
       enableScripts: true,

@@ -4,5 +4,6 @@
 app/**
 node_modules/**
 build-extension.sh
+scripts/**
 *.vsix
 **/*.map

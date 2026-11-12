@@ -1,6 +1,6 @@
 {
   "name": "spritemate-msx-vscode-plugin",
-  "displayName": "Spritemate MSX2 Sprite Editor",
+  "displayName": "Spritemate MSX Sprite Editor",
   "description": "A standalone VS Code extension with a V9938 Sprite Mode 2 pixel editor and MSXgl data export.",
   "version": "0.1.0",
   "publisher": "MennoHomanWindigo",
@@ -49,6 +49,7 @@
   },
   "scripts": {
     "build": "./build-extension.sh",
+    "prepackage": "node scripts/sync-versions.js",
     "package": "vsce package"
   },
   "devDependencies": {
