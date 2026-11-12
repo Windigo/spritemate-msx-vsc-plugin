@@ -31,6 +31,7 @@
         <h1>MSX2 Sprite Editor</h1>
       </div>
       <div class="actions">
+        <button id="show-info" class="secondary" type="button">Info</button>
         <label class="button secondary" for="project-file">Open project</label>
         <input id="project-file" type="file" accept=".msxproj,.json,application/json" hidden />
         <button id="save-project" class="secondary">Save project</button>
@@ -164,6 +165,23 @@
       </div>
       <p class="hint">512 RGB colors · 3 bits per channel · select a square or adjust the sliders.</p>
       <div id="rgb-cube" class="rgb-cube"></div>
+    </dialog>
+    <dialog id="info-dialog" class="info-dialog" aria-labelledby="info-title">
+      <div class="picker-heading">
+        <div><span class="eyebrow">ABOUT THIS EDITOR</span><h2 id="info-title">Spritemate MSX2</h2></div>
+        <button id="close-info" class="secondary" type="button">Close</button>
+      </div>
+      <div class="info-content">
+        <p>This MSX2 sprite editor is a standalone fork of <strong>Spritemate</strong>, the original Commodore 64 sprite editor.</p>
+        <dl>
+          <dt>Original editor</dt><dd>Spritemate by Ingo Hinterding (awsm)</dd>
+          <dt>Original project</dt><dd><a href="https://github.com/Esshahn/spritemate" target="_blank" rel="noreferrer">github.com/Esshahn/spritemate</a></dd>
+          <dt>Original website</dt><dd><a href="https://spritemate.com/" target="_blank" rel="noreferrer">spritemate.com</a></dd>
+          <dt>License</dt><dd>MIT · Copyright © 2017 Ingo Hinterding</dd>
+          <dt>This fork</dt><dd>MSX2 V9938 Sprite Mode 2 editor with CC color mixing and animation tools.</dd>
+        </dl>
+        <p class="hint">The original attribution and license are included with this project.</p>
+      </div>
     </dialog>
   </body>
 </html>

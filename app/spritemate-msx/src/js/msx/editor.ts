@@ -36,6 +36,7 @@ const onionOpacity = document.querySelector<HTMLInputElement>("#onion-opacity")!
 const onionOpacityValue = document.querySelector<HTMLOutputElement>("#onion-opacity-value")!;
 const animationFrameLabel = document.querySelector<HTMLElement>("#animation-frame-label")!;
 const playbackModePicker = document.querySelector<HTMLSelectElement>("#animation-playback-mode")!;
+const infoDialog = document.querySelector<HTMLDialogElement>("#info-dialog")!;
 const layerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".layer-button"));
 const picker = document.querySelector<HTMLDialogElement>("#palette-picker")!;
 const rgbCube = document.querySelector<HTMLDivElement>("#rgb-cube")!;
@@ -841,6 +842,11 @@ for (const channel of Object.values(channels)) {
 }
 buildRgbCube();
 document.querySelector<HTMLButtonElement>("#close-picker")!.addEventListener("click", () => picker.close());
+document.querySelector<HTMLButtonElement>("#show-info")!.addEventListener("click", () => infoDialog.showModal());
+document.querySelector<HTMLButtonElement>("#close-info")!.addEventListener("click", () => infoDialog.close());
+infoDialog.addEventListener("click", (event) => {
+  if (event.target === infoDialog) infoDialog.close();
+});
 layerButtons.forEach((button, index) => button.addEventListener("click", () => {
   selectedLayer = index;
   render();
