@@ -26,7 +26,6 @@ This document records the animation design for future work on the standalone MSX
 
 ## Follow-up opportunities
 
-- Onion-skin the previous and next frames on the draw canvas with adjustable opacity.
 - Reorder frames and support frame durations per frame.
 - Add animation tags.
 - Reuse identical pattern data in exported animation arrays to reduce ROM size.

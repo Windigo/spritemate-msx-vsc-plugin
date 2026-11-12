@@ -31,6 +31,9 @@ const frameStrip = document.querySelector<HTMLDivElement>("#frame-strip")!;
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
 const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
 const frameDurationValue = document.querySelector<HTMLOutputElement>("#frame-duration-value")!;
+const onionSkin = document.querySelector<HTMLInputElement>("#onion-skin")!;
+const onionOpacity = document.querySelector<HTMLInputElement>("#onion-opacity")!;
+const onionOpacityValue = document.querySelector<HTMLOutputElement>("#onion-opacity-value")!;
 const animationFrameLabel = document.querySelector<HTMLElement>("#animation-frame-label")!;
 const playbackModePicker = document.querySelector<HTMLSelectElement>("#animation-playback-mode")!;
 const layerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".layer-button"));
@@ -62,6 +65,7 @@ let frameDurationMs = 180;
 let playbackTimer: number | null = null;
 let playbackMode: "loop" | "pingpong" = "loop";
 let playbackDirection: 1 | -1 = 1;
+let onionOpacityValuePercent = Number(onionOpacity.value);
 
 const layoutKey = "spritemate-msx2-window-layout";
 const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel"));
@@ -84,6 +88,7 @@ function saveWindowLayout(): void {
     height: panel.classList.contains("collapsed")
       ? Number(panel.dataset.expandedHeight) || panel.offsetHeight
       : panel.offsetHeight,
+    zIndex: Number(panel.style.zIndex) || 0,
     collapsed: panel.classList.contains("collapsed"),
   }]));
   try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
@@ -107,7 +112,7 @@ function setupWindowLayout(): void {
     handle.append(button);
   }
 
-  let saved: Record<string, { left: number; top: number; width: number; height: number; collapsed?: boolean }> = {};
+  let saved: Record<string, { left: number; top: number; width: number; height: number; zIndex?: number; collapsed?: boolean }> = {};
   try { saved = JSON.parse(localStorage.getItem(layoutKey) || "{}"); } catch { /* Use default positions. */ }
   // Keep existing window positions when adding the preview window. Move only
   // the previous default export window so it does not cover the new preview.
@@ -145,15 +150,19 @@ function setupWindowLayout(): void {
       panel.style.height = `${Math.max(position.height, 150)}px`;
       panel.style.left = `${Math.max(0, Math.min(position.left, panel.parentElement!.clientWidth - panel.offsetWidth))}px`;
       panel.style.top = `${Math.max(0, Math.min(position.top, panel.parentElement!.clientHeight - 45))}px`;
+      if (Number.isFinite(position.zIndex) && position.zIndex! > 0) panel.style.zIndex = String(position.zIndex);
       panel.classList.toggle("collapsed", Boolean(position.collapsed));
       updateCollapseButton(panel, Boolean(position.collapsed));
     }
   }
 
-  let topLayer = 2;
+  let topLayer = Math.max(2, ...panels.map((panel) => Number(panel.style.zIndex) || 0));
   for (const panel of panels) {
     const handle = panel.querySelector<HTMLElement>(".window-handle")!;
-    panel.addEventListener("pointerdown", () => { panel.style.zIndex = String(++topLayer); });
+    panel.addEventListener("pointerdown", () => {
+      panel.style.zIndex = String(++topLayer);
+      saveWindowLayout();
+    });
     handle.addEventListener("pointerdown", (event) => {
       if (window.innerWidth <= 960 || event.button !== 0 || (event.target as HTMLElement).closest("button, select, input, a, label")) return;
       event.preventDefault();
@@ -375,6 +384,8 @@ function renderCanvas(): void {
   const scale = 24;
   const selected = activeSprite();
   const guide = spriteMode === "pair" ? project.sprites[1 - selectedLayer] : selected;
+  const previousFrame = currentFrameIndex > 0 ? animationFrames[currentFrameIndex - 1] : undefined;
+  const nextFrame = currentFrameIndex < animationFrames.length - 1 ? animationFrames[currentFrameIndex + 1] : undefined;
   canvas.width = size * scale;
   canvas.height = size * scale;
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -384,6 +395,18 @@ function renderCanvas(): void {
       const py = y * scale;
       context.fillStyle = (x + y) % 2 ? "#18212b" : "#202c38";
       context.fillRect(px, py, scale, scale);
+      if (onionSkin.checked && previousFrame && frameHasPixel(previousFrame, x, y)) {
+        context.globalAlpha = onionOpacityValuePercent / 100;
+        context.fillStyle = "#5bbaff";
+        context.fillRect(px + 3, py + 3, scale - 6, scale - 6);
+        context.globalAlpha = 1;
+      }
+      if (onionSkin.checked && nextFrame && frameHasPixel(nextFrame, x, y)) {
+        context.globalAlpha = onionOpacityValuePercent / 100;
+        context.fillStyle = "#ff936a";
+        context.fillRect(px + 3, py + 3, scale - 6, scale - 6);
+        context.globalAlpha = 1;
+      }
       const guidePixel = spriteMode === "pair" && guide.pixels[y][x] !== 0 && guide.scanlines[y].color !== 0;
       const selectedPixel = selected.pixels[y][x] !== 0 && selected.scanlines[y].color !== 0;
       if (guidePixel) {
@@ -410,6 +433,13 @@ function renderCanvas(): void {
   const line = selected.scanlines[selectedRow];
   canvasStatus.textContent = `Sprite ${selectedLayer} · row ${selectedRow + 1} · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`;
   renderRowColorGuides();
+}
+
+function frameHasPixel(frame: typeof project.sprites, x: number, y: number): boolean {
+  const base = frame[0];
+  const overlay = frame[1];
+  return (base.pixels[y][x] !== 0 && base.scanlines[y].color !== 0)
+    || (spriteMode === "pair" && overlay.pixels[y][x] !== 0 && overlay.scanlines[y].color !== 0);
 }
 
 function renderPreview(): void {
@@ -790,6 +820,12 @@ frameDuration.addEventListener("input", () => {
   renderFrameStrip();
   renderPreview();
   renderOutput();
+});
+onionSkin.addEventListener("change", renderCanvas);
+onionOpacity.addEventListener("input", () => {
+  onionOpacityValuePercent = Number(onionOpacity.value);
+  onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
+  renderCanvas();
 });
 
 canvas.addEventListener("pointerdown", (event) => {
