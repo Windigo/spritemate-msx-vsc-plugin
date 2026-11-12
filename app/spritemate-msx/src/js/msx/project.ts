@@ -28,6 +28,9 @@ export interface Msx2Project {
   animationFrames?: Msx2Sprite[][];
   frameDurationMs?: number;
   currentFrameIndex?: number;
+  playbackMode?: "loop" | "pingpong";
+  onionSkinEnabled?: boolean;
+  onionOpacity?: number;
 }
 
 export function createMsx2Sprite(name: string, size: SpriteSize): Msx2Sprite {

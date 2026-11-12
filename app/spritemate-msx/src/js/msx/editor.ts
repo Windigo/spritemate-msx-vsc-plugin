@@ -52,20 +52,65 @@ const channelOutputs = {
   g: document.querySelector<HTMLOutputElement>("#green-value")!,
   b: document.querySelector<HTMLOutputElement>("#blue-value")!,
 };
-let project: Msx2Project = createMsx2Project(16);
+let project: Msx2Project;
 let selectedRow = 0;
 let selectedPaletteSlot = 1;
 let selectedLayer = 0;
 let drawing = false;
-let spriteMode: "single" | "pair" = "pair";
+type EditorSettings = {
+  spriteSize: SpriteSize;
+  spriteMode: "single" | "pair";
+  onionSkinEnabled: boolean;
+  onionOpacity: number;
+  frameDurationMs: number;
+  playbackMode: "loop" | "pingpong";
+};
+const settingsKey = "spritemate-msx2-editor-settings";
+function readEditorSettings(): Partial<EditorSettings> {
+  try {
+    const value = JSON.parse(localStorage.getItem(settingsKey) || "null") as Partial<EditorSettings> | null;
+    if (!value || typeof value !== "object") return {};
+    return {
+      ...(value.spriteSize === 8 || value.spriteSize === 16 ? { spriteSize: value.spriteSize } : {}),
+      ...(value.spriteMode === "single" || value.spriteMode === "pair" ? { spriteMode: value.spriteMode } : {}),
+      ...(typeof value.onionSkinEnabled === "boolean" ? { onionSkinEnabled: value.onionSkinEnabled } : {}),
+      ...(Number.isFinite(value.onionOpacity) ? { onionOpacity: Math.max(10, Math.min(60, Math.round(value.onionOpacity! / 5) * 5)) } : {}),
+      ...(Number.isFinite(value.frameDurationMs) ? { frameDurationMs: Math.max(80, Math.min(1000, Math.round(value.frameDurationMs! / 20) * 20)) } : {}),
+      ...(value.playbackMode === "loop" || value.playbackMode === "pingpong" ? { playbackMode: value.playbackMode } : {}),
+    };
+  } catch { return {}; }
+}
+const savedEditorSettings = readEditorSettings();
+project = createMsx2Project(savedEditorSettings.spriteSize ?? 16);
+sizePicker.value = String(project.spriteSize);
+let spriteMode: "single" | "pair" = savedEditorSettings.spriteMode ?? "pair";
 let animationFrames = [project.sprites];
 let currentFrameIndex = 0;
 let previewFrameIndex = 0;
-let frameDurationMs = 180;
+let frameDurationMs = savedEditorSettings.frameDurationMs ?? 180;
 let playbackTimer: number | null = null;
-let playbackMode: "loop" | "pingpong" = "loop";
+let playbackMode: "loop" | "pingpong" = savedEditorSettings.playbackMode ?? "loop";
 let playbackDirection: 1 | -1 = 1;
+onionSkin.checked = savedEditorSettings.onionSkinEnabled ?? false;
+onionOpacity.value = String(savedEditorSettings.onionOpacity ?? 25);
 let onionOpacityValuePercent = Number(onionOpacity.value);
+modePicker.value = spriteMode;
+frameDuration.value = String(frameDurationMs);
+frameDurationValue.textContent = `${frameDurationMs} ms`;
+onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
+playbackModePicker.value = playbackMode;
+
+function saveEditorSettings(): void {
+  const settings: EditorSettings = {
+    spriteSize: project.spriteSize,
+    spriteMode,
+    onionSkinEnabled: onionSkin.checked,
+    onionOpacity: onionOpacityValuePercent,
+    frameDurationMs,
+    playbackMode,
+  };
+  try { localStorage.setItem(settingsKey, JSON.stringify(settings)); } catch { /* Storage can be disabled. */ }
+}
 
 const layoutKey = "spritemate-msx2-window-layout";
 const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel"));
@@ -334,6 +379,7 @@ function setSpriteMode(mode: "single" | "pair"): void {
   if (spriteMode === "single" && selectedLayer === 1) selectedLayer = 0;
   modePicker.value = spriteMode;
   render();
+  saveEditorSettings();
 }
 
 function renderRowColorGuides(): void {
@@ -806,6 +852,7 @@ playbackModePicker.addEventListener("change", () => {
   playbackDirection = 1;
   renderFrameStrip();
   renderPreview();
+  saveEditorSettings();
 });
 document.querySelector<HTMLButtonElement>("#frame-new")!.addEventListener("click", () => addAnimationFrame(true));
 document.querySelector<HTMLButtonElement>("#frame-duplicate")!.addEventListener("click", () => addAnimationFrame(false));
@@ -820,12 +867,17 @@ frameDuration.addEventListener("input", () => {
   renderFrameStrip();
   renderPreview();
   renderOutput();
+  saveEditorSettings();
 });
-onionSkin.addEventListener("change", renderCanvas);
+onionSkin.addEventListener("change", () => {
+  renderCanvas();
+  saveEditorSettings();
+});
 onionOpacity.addEventListener("input", () => {
   onionOpacityValuePercent = Number(onionOpacity.value);
   onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
   renderCanvas();
+  saveEditorSettings();
 });
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -851,6 +903,7 @@ sizePicker.addEventListener("change", () => {
   selectedLayer = 0;
   selectedRow = 0;
   render();
+  saveEditorSettings();
 });
 
 document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
@@ -858,6 +911,9 @@ document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("cl
   project.animationFrames = animationFrames;
   project.frameDurationMs = frameDurationMs;
   project.currentFrameIndex = currentFrameIndex;
+  project.playbackMode = playbackMode;
+  project.onionSkinEnabled = onionSkin.checked;
+  project.onionOpacity = onionOpacityValuePercent;
   download("sprite-animation.msxproj", JSON.stringify(project, null, 2), "application/json");
 });
 
@@ -899,13 +955,25 @@ document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("cha
     const loadedFrameDuration = Number(loaded.frameDurationMs);
     frameDurationMs = Number.isFinite(loadedFrameDuration)
       ? Math.round(Math.max(80, Math.min(1000, loadedFrameDuration)) / 20) * 20
-      : 180;
+      : savedEditorSettings.frameDurationMs ?? 180;
     frameDuration.value = String(frameDurationMs);
     frameDurationValue.textContent = `${frameDurationMs} ms`;
     spriteMode = loaded.spriteMode === "single" || loaded.spriteMode === "pair"
       ? loaded.spriteMode
       : loaded.sprites.length === 1 ? "single" : "pair";
     modePicker.value = spriteMode;
+    playbackMode = loaded.playbackMode === "loop" || loaded.playbackMode === "pingpong"
+      ? loaded.playbackMode
+      : savedEditorSettings.playbackMode ?? "loop";
+    playbackModePicker.value = playbackMode;
+    onionSkin.checked = typeof loaded.onionSkinEnabled === "boolean"
+      ? loaded.onionSkinEnabled
+      : savedEditorSettings.onionSkinEnabled ?? false;
+    onionOpacityValuePercent = Number.isFinite(loaded.onionOpacity)
+      ? Math.max(10, Math.min(60, Math.round(loaded.onionOpacity! / 5) * 5))
+      : savedEditorSettings.onionOpacity ?? 25;
+    onionOpacity.value = String(onionOpacityValuePercent);
+    onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
     project = {
       format: "spritemate-msx",
       version: 1,
@@ -919,6 +987,7 @@ document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("cha
     selectedRow = 0;
     stopPlayback();
     render();
+    saveEditorSettings();
     status.textContent = `Loaded ${file.name}`;
   } catch (error) {
     window.alert(error instanceof Error ? error.message : "Could not open project.");
