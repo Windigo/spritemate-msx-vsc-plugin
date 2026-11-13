@@ -19,6 +19,7 @@ const targetPicker = document.querySelector<HTMLSelectElement>("#sprite-target")
 const magnificationPicker = document.querySelector<HTMLSelectElement>("#sprite-magnification")!;
 const msx1ColorSettings = document.querySelector<HTMLDivElement>("#msx1-color-settings")!;
 const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
+const previewSizePicker = document.querySelector<HTMLSelectElement>("#preview-size")!;
 const editorVersion = document.querySelector<HTMLElement>("#editor-version")!;
 const customEditorMode = document.querySelector<HTMLMetaElement>('meta[name="msxsm-custom-editor"]')?.content === "true";
 const vscodeApi = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
@@ -29,15 +30,10 @@ const output = document.querySelector<HTMLElement>("#export-output code")!;
 const exportFormat = document.querySelector<HTMLSelectElement>("#export-format")!;
 const exportLanguage = document.querySelector<HTMLElement>("#export-language")!;
 const exportSelectedButton = document.querySelector<HTMLButtonElement>("#export-selected")!;
-const canvasStatus = document.querySelector<HTMLElement>("#canvas-status")!;
 const baseRowGuide = document.querySelector<HTMLDivElement>("#base-row-guide")!;
 const overlayRowGuide = document.querySelector<HTMLDivElement>("#overlay-row-guide")!;
 const previewCanvas = document.querySelector<HTMLCanvasElement>("#overlap-preview")!;
 const previewContext = previewCanvas.getContext("2d")!;
-const overlapFormula = document.querySelector<HTMLElement>("#overlap-formula")!;
-const overlapSwatch = document.querySelector<HTMLElement>("#overlap-swatch")!;
-const overlapColor = document.querySelector<HTMLElement>("#overlap-color")!;
-const previewHint = document.querySelector<HTMLElement>("#preview-hint")!;
 const animationTracks = document.querySelector<HTMLDivElement>("#animation-tracks")!;
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
 const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
@@ -50,6 +46,7 @@ const animationFrameLabel = document.querySelector<HTMLElement>("#animation-fram
 const playbackModePicker = document.querySelector<HTMLSelectElement>("#animation-playback-mode")!;
 const infoDialog = document.querySelector<HTMLDialogElement>("#info-dialog")!;
 const helpDialog = document.querySelector<HTMLDialogElement>("#help-dialog")!;
+const topbarMenu = document.querySelector<HTMLDetailsElement>("#topbar-menu")!;
 const layerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".layer-button"));
 const picker = document.querySelector<HTMLDialogElement>("#palette-picker")!;
 const rgbCube = document.querySelector<HTMLDivElement>("#rgb-cube")!;
@@ -76,6 +73,7 @@ let drawing = false;
 type EditorSettings = {
   target: "msx1" | "msx2";
   magnification: 1 | 2;
+  previewSize: 0.75 | 1 | 1.5;
   uniformFrameDuration: boolean;
   spriteSize: SpriteSize;
   spriteMode: "single" | "pair";
@@ -92,6 +90,7 @@ function readEditorSettings(): Partial<EditorSettings> {
     return {
       ...(value.target === "msx1" || value.target === "msx2" ? { target: value.target } : {}),
       ...(value.magnification === 1 || value.magnification === 2 ? { magnification: value.magnification } : {}),
+      ...(value.previewSize === 0.75 || value.previewSize === 1 || value.previewSize === 1.5 ? { previewSize: value.previewSize } : {}),
       ...(typeof value.uniformFrameDuration === "boolean" ? { uniformFrameDuration: value.uniformFrameDuration } : {}),
       ...(value.spriteSize === 8 || value.spriteSize === 16 ? { spriteSize: value.spriteSize } : {}),
       ...(value.spriteMode === "single" || value.spriteMode === "pair" ? { spriteMode: value.spriteMode } : {}),
@@ -105,10 +104,12 @@ function readEditorSettings(): Partial<EditorSettings> {
 const savedEditorSettings = readEditorSettings();
 project = createMsx2Project(savedEditorSettings.spriteSize ?? 16);
 let msxTarget: "msx1" | "msx2" = savedEditorSettings.target ?? "msx2";
+let previewSize: 0.75 | 1 | 1.5 = savedEditorSettings.previewSize ?? 1;
 let msx2Palette = [...project.palette];
 project.target = msxTarget === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2";
 project.magnification = savedEditorSettings.magnification ?? 1;
 magnificationPicker.value = String(project.magnification);
+previewSizePicker.value = String(previewSize);
 project.palette = msxTarget === "msx1" ? [...MSX1_PALETTE] : [...DEFAULT_PALETTE];
 targetPicker.value = msxTarget;
 sizePicker.value = String(project.spriteSize);
@@ -137,6 +138,7 @@ function saveEditorSettings(): void {
   const settings: EditorSettings = {
     target: msxTarget,
     magnification: project.magnification ?? 1,
+    previewSize,
     uniformFrameDuration: animations[activeAnimationIndex]?.uniformFrameDuration === true,
     spriteSize: project.spriteSize,
     spriteMode,
@@ -1142,10 +1144,6 @@ function renderCanvas(): void {
   }
   context.fillStyle = "#dce8f2";
   context.fillRect(0, selectedRow * scale, canvas.width, 1);
-  const line = selected.scanlines[selectedRow];
-  canvasStatus.textContent = msxTarget === "msx1"
-    ? `Sprite ${selectedLayer} · all rows · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`
-    : `Sprite ${selectedLayer} · row ${selectedRow + 1} · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`;
   renderRowColorGuides();
 }
 
@@ -1159,8 +1157,10 @@ function frameHasPixel(frame: typeof project.sprites, x: number, y: number): boo
 function renderPreview(): void {
   const previewSprites = animationFrames[isPlaying ? previewFrameIndex : currentFrameIndex] || project.sprites;
   const size = project.spriteSize;
-  const scale = 12;
-  const displayScale = scale * (msxTarget === "msx1" ? project.magnification ?? 1 : 1);
+  const scale = 8;
+  const magnification = msxTarget === "msx1" ? project.magnification ?? 1 : 1;
+  const displayScale = scale * magnification;
+  previewCanvas.style.setProperty("--preview-size", `${size * displayScale * previewSize}px`);
   previewCanvas.width = size * displayScale;
   previewCanvas.height = size * displayScale;
   for (let y = 0; y < size; y++) {
@@ -1181,25 +1181,6 @@ function renderPreview(): void {
       previewContext.fillRect(x * displayScale, y * displayScale, displayScale, displayScale);
     }
   }
-  const colorRow = msxTarget === "msx1" ? 0 : selectedRow;
-  const baseColor = previewSprites[0].scanlines[colorRow].color;
-  const overlayLine = previewSprites[1].scanlines[colorRow];
-  const result = msxTarget === "msx2" && spriteMode === "pair" && overlayLine.overlapMix
-    ? baseColor | overlayLine.color
-    : baseColor;
-  const code = (value: number) => `P${String(value).padStart(2, "0")}`;
-  const bits = (value: number) => value.toString(2).padStart(4, "0");
-  overlapFormula.textContent = msxTarget === "msx1"
-    ? spriteMode === "single"
-      ? `MSX1 Sprite 0 · ${code(baseColor)} · TMS9918A fixed color`
-      : `MSX1 priority · ${code(baseColor)} covers ${code(overlayLine.color)} where sprites overlap`
-    : spriteMode === "single"
-      ? `Sprite 0 · ${code(baseColor)} (${bits(baseColor)})`
-      : overlayLine.overlapMix
-        ? `${code(baseColor)} (${bits(baseColor)}) OR ${code(overlayLine.color)} (${bits(overlayLine.color)}) = ${code(result)} (${bits(result)})`
-        : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
-  overlapSwatch.style.backgroundColor = colorIndexToCss(project.palette[result]);
-  overlapColor.textContent = `${code(result)} · ${colorIndexToHex(project.palette[result])}`;
   updateAnimationFrameLabel();
 }
 
@@ -1580,11 +1561,6 @@ function render(): void {
   modePicker.options[1].textContent = msxTarget === "msx1" ? "Sprite pair · separate colors" : "Sprite pair + CC";
   layerButtons[0].textContent = msxTarget === "msx1" ? "Sprite 0 · first priority" : "Sprite 0 · base";
   layerButtons[1].textContent = msxTarget === "msx1" ? "Sprite 1 · independent" : "Sprite 1 · CC overlay";
-  document.querySelector<HTMLElement>("#canvas-footer-hint")!.textContent = msxTarget === "msx1"
-    ? selectedLayer === 1
-      ? "Sprite 0 has priority on overlap; a blue border marks Sprite 1 pixels placed there."
-      : "The other sprite appears translucent in its own color; Sprite 0 has priority on overlap."
-    : "The overlap preview shows the final CC color.";
   document.querySelector<HTMLElement>("#preview-target-label")!.textContent = msxTarget === "msx1" ? "TMS9918A RESULT" : "V9938 RESULT";
   document.querySelector<HTMLElement>("#palette-target-label")!.textContent = msxTarget === "msx1" ? "TMS9918A FIXED PALETTE" : "V9938 PALETTE";
   document.querySelector<HTMLElement>("#palette-count")!.textContent = msxTarget === "msx1" ? "16 slots · fixed colors" : "16 slots · 512 colors";
@@ -1599,11 +1575,6 @@ function render(): void {
   frameDurationValue.textContent = `${frameDurationMs} ms`;
   uniformFrameDurationToggle.checked = animations[activeAnimationIndex]?.uniformFrameDuration === true;
   document.body.classList.toggle("single-sprite", spriteMode === "single");
-  previewHint.textContent = msxTarget === "msx1"
-    ? "MSX1 preview: one fixed-palette color per sprite. Sprite 0 has priority; only 4 sprites can appear on each scanline."
-    : spriteMode === "single"
-      ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
-      : "The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.";
   modePicker.value = spriteMode;
   updateExportFormatUi();
   layerButtons.forEach((button, index) => {
@@ -1637,12 +1608,18 @@ for (const channel of Object.values(channels)) {
 }
 buildRgbCube();
 document.querySelector<HTMLButtonElement>("#close-picker")!.addEventListener("click", () => picker.close());
-document.querySelector<HTMLButtonElement>("#show-help")!.addEventListener("click", () => helpDialog.showModal());
+document.querySelector<HTMLButtonElement>("#show-help")!.addEventListener("click", () => {
+  topbarMenu.open = false;
+  helpDialog.showModal();
+});
 document.querySelector<HTMLButtonElement>("#close-help")!.addEventListener("click", () => helpDialog.close());
 helpDialog.addEventListener("click", (event) => {
   if (event.target === helpDialog) helpDialog.close();
 });
-document.querySelector<HTMLButtonElement>("#show-info")!.addEventListener("click", () => infoDialog.showModal());
+document.querySelector<HTMLButtonElement>("#show-info")!.addEventListener("click", () => {
+  topbarMenu.open = false;
+  infoDialog.showModal();
+});
 document.querySelector<HTMLButtonElement>("#close-info")!.addEventListener("click", () => infoDialog.close());
 infoDialog.addEventListener("click", (event) => {
   if (event.target === infoDialog) infoDialog.close();
@@ -1656,6 +1633,11 @@ magnificationPicker.addEventListener("change", () => {
   project.magnification = Number(magnificationPicker.value) === 2 ? 2 : 1;
   renderPreview();
   renderOutput();
+  saveEditorSettings();
+});
+previewSizePicker.addEventListener("change", () => {
+  previewSize = Number(previewSizePicker.value) === 0.75 ? 0.75 : Number(previewSizePicker.value) === 1.5 ? 1.5 : 1;
+  renderPreview();
   saveEditorSettings();
 });
 modePicker.addEventListener("change", () => setSpriteMode(modePicker.value as "single" | "pair"));
@@ -1780,6 +1762,7 @@ function serializeProject(): string {
 }
 
 document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
+  topbarMenu.open = false;
   const projectText = serializeProject();
   if (customEditorMode && vscodeApi) vscodeApi.postMessage({ type: "save-project", text: projectText });
   else download("sprite-animation.msxsm", projectText, "application/json");
@@ -1909,6 +1892,7 @@ function loadProjectText(projectText: string): void {
 }
 
 document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("change", async (event) => {
+  topbarMenu.open = false;
   const input = event.currentTarget as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;

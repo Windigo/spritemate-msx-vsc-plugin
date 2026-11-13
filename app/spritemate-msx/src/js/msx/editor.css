@@ -22,13 +22,10 @@ main{max-width:none;width:100%;margin:0}
 .layer-picker{display:flex;gap:7px;margin:10px 0 14px}
 .layer-button{flex:1;padding:8px 10px}
 .layer-button.active{color:#09231b;background:#b4f2dd;border-color:#b4f2dd}
-.preview-layout{display:flex;gap:20px;align-items:center}
-#overlap-preview{width:192px;height:192px;flex:0 0 192px;image-rendering:pixelated;background:#16212b;border:1px solid #354252;border-radius:5px;cursor:default}
-.preview-details{min-width:0;align-self:flex-start}
-.preview-details .hint{margin-top:4px}
-#overlap-formula{display:block;font:600 14px 'DM Mono',monospace;color:#e4edf5;line-height:1.6}
-.preview-result{display:flex;align-items:center;gap:8px;margin-top:10px;font:11px 'DM Mono',monospace;color:#bfcbd8}
-#overlap-swatch{display:inline-block;width:30px;height:26px;border:1px solid #ffffff66;border-radius:4px}
+#overlap-preview{width:var(--preview-size,128px);height:var(--preview-size,128px);flex:0 0 var(--preview-size,128px);image-rendering:pixelated;background:#16212b;border:1px solid #354252;border-radius:5px;cursor:default}
+.preview-toolbar{display:flex;justify-content:flex-end;margin:0 0 8px}
+.preview-size-control{flex:0 0 auto;gap:6px;font-size:10px}
+.preview-size-control select{padding:6px 8px;font-size:10px}
 @media (max-width:960px){
   .workspace{display:grid;grid-template-columns:1fr;height:auto}
   .movable-panel{position:static!important;width:auto!important;height:auto!important;min-width:0;resize:none;overflow:visible}
@@ -36,7 +33,7 @@ main{max-width:none;width:100%;margin:0}
   .export-panel{margin-top:0}
   .preview-panel{padding:18px 20px}
 }
-@media (max-width:520px){.preview-layout{flex-direction:column;align-items:flex-start}.layer-picker{flex-wrap:wrap}.layer-button{min-width:140px}}
+@media (max-width:520px){.layer-picker{flex-wrap:wrap}.layer-button{min-width:140px}}
 
 /* Scanline guides show each sprite color over the CC result color. */
 .canvas-stage{display:grid;grid-template-columns:48px minmax(0,400px) 48px;align-items:stretch;gap:6px;width:max-content;max-width:100%;height:min(400px,78vw)}
@@ -241,6 +238,17 @@ body.single-sprite .scanline-panel th:nth-child(3),body.single-sprite .scanline-
 .action-group button:hover,.action-group .button:hover,#reset-layout:hover{background:#ffffff12!important;color:#fff!important}
 .action-group button:focus-visible,.action-group .button:focus-visible{outline:2px solid #b4f2dd;outline-offset:2px}
 #reset-layout{flex:0 0 auto;margin-left:auto}
+.actions{margin-left:auto}
+.topbar-menu{position:relative;z-index:20}
+.topbar-menu>summary{display:inline-flex;align-items:center;gap:12px;height:35px;padding:7px 11px;border:1px solid #ffffff26;border-radius:6px;color:#e8edf4;font:500 11px/1 'Space Grotesk',sans-serif;cursor:pointer;list-style:none;user-select:none}
+.topbar-menu>summary::-webkit-details-marker{display:none}
+.topbar-menu>summary::after{content:"⌄";color:#b4f2dd;font-size:14px;line-height:1;transform:translateY(-4px)}
+.topbar-menu>summary:hover,.topbar-menu[open]>summary{background:#ffffff12}
+.topbar-menu>summary:focus-visible{outline:2px solid #b4f2dd;outline-offset:2px}
+.topbar-menu-items{position:absolute;top:calc(100% + 7px);right:0;display:grid;min-width:190px;padding:5px;border:1px solid #40536a;border-radius:8px;background:#151f2b;box-shadow:0 14px 35px #0009}
+.topbar-menu-item{display:flex;align-items:center;min-height:36px;padding:8px 10px;border:0;border-radius:5px;background:transparent;color:#dce5ef;text-align:left;text-decoration:none;font:500 12px 'Space Grotesk',sans-serif;cursor:pointer}
+.topbar-menu-item:hover{background:#ffffff12;color:#fff}
+.topbar-menu-item:focus-visible{outline:2px solid #b4f2dd;outline-offset:-2px}
 .panel-heading h2,.picker-heading h2,.frame-editor-heading strong{color:#edf4fa!important}
 
 .msx1-only{display:none}.msx2-only{display:block}.msx1 .msx1-only{display:block}.msx1 .msx2-only{display:none!important}.msx1 #msx1-color-settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px}.msx1 .palette-slot{cursor:default}.msx1 .palette-slot:hover{transform:none}.msx1 .row-guide-cell{cursor:default}

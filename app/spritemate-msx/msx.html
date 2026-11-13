@@ -30,15 +30,16 @@
         <h1>MSX SpriteMate <span id="editor-version"></span></h1>
       </div>
       <div class="actions">
-        <div class="action-group" aria-label="Help and information">
-          <button id="show-help" class="secondary" type="button">Help</button>
-          <button id="show-info" class="secondary" type="button">Info</button>
-        </div>
-        <div class="action-group" aria-label="Project files">
-          <label class="button secondary" for="project-file">Open project</label>
+        <details id="topbar-menu" class="topbar-menu">
+          <summary aria-label="Open menu">Menu</summary>
+          <div class="topbar-menu-items" aria-label="Project and help menu">
+          <label class="topbar-menu-item" for="project-file">Open project</label>
           <input id="project-file" type="file" accept=".msxsm,.json,application/json" hidden />
-          <button id="save-project" class="secondary" type="button">Save project</button>
-        </div>
+          <button id="save-project" class="topbar-menu-item" type="button">Save project</button>
+          <button id="show-help" class="topbar-menu-item" type="button">Help</button>
+          <button id="show-info" class="topbar-menu-item" type="button">Info</button>
+          </div>
+        </details>
         <button id="reset-layout" class="secondary" type="button">Reset windows</button>
       </div>
     </header>
@@ -89,7 +90,6 @@
               <div id="overlay-row-guide" class="canvas-row-guide" aria-label="Sprite 1 row colors"></div>
             </div>
           </div>
-          <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span id="canvas-footer-hint">The overlap preview shows the final CC color.</span></div>
           <div class="frame-editor-controls">
             <div class="frame-editor-heading"><strong>Animations</strong><span class="hint">Each row is a separate loop · drag a frame to another row to copy it.</span></div>
             <div class="frame-actions"><button id="animation-new" class="secondary" type="button">New animation</button></div>
@@ -98,14 +98,12 @@
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
           <div class="panel-heading window-handle"><div><span id="preview-target-label" class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Sprite &amp; animation preview</h2></div></div>
-          <div class="preview-layout">
-            <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
-            <div class="preview-details">
-              <p id="preview-hint" class="hint">The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.</p>
-              <strong id="overlap-formula">P02 OR P04 = P06</strong>
-              <div class="preview-result"><span id="overlap-swatch"></span><span id="overlap-color">P06</span></div>
-            </div>
+          <div class="preview-toolbar">
+            <label class="size-picker preview-size-control">Preview size
+              <select id="preview-size"><option value="0.75">Compact</option><option value="1" selected>Normal</option><option value="1.5">Large</option></select>
+            </label>
           </div>
+          <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
           <div class="animation-controls">
             <button id="animation-play" class="secondary" type="button" aria-pressed="false">Play</button>
             <div class="duration-editor">
@@ -204,7 +202,8 @@
             <li>Choose an 8 × 8 or 16 × 16 sprite and select <strong>Single sprite</strong> or <strong>Sprite pair</strong>. The pair mode uses two independent sprites on MSX1 and supports Sprite 1's CC overlay on MSX2.</li>
             <li>Click or drag on the canvas to draw. Right-click or hold <kbd>Shift</kbd> while drawing to erase.</li>
             <li>In pair mode, edit both sprites separately. MSX2 can use Sprite 1 as a CC overlay. MSX1 uses independent colors and gives Sprite 0 priority wherever both sprites have a pixel. The inactive sprite appears translucently in its own color; while editing Sprite 1, a blue border marks its pixels underneath higher-priority Sprite 0 pixels.</li>
-            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 has one fixed-palette color per sprite, Early Clock, and 1× or 2× magnification. Early Clock shifts the entire sprite 32 pixels left; magnification doubles its displayed size in both directions.</li>
+            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 has one fixed-palette color per sprite, Early Clock, and 1× or 2× hardware magnification. Early Clock shifts the entire sprite 32 pixels left; hardware magnification doubles its displayed size in both directions.</li>
+            <li><strong>Preview size</strong> changes only the sprite's on-screen size in the preview panel. It is available for both targets and does not change the hardware output.</li>
           </ul>
         </section>
         <section>
@@ -243,7 +242,7 @@
         <button id="close-info" class="secondary" type="button">Close</button>
       </div>
       <div class="info-content">
-        <p>MSX SpriteMate is an MSX2 sprite editor based on <strong>Spritemate</strong>, the original Commodore 64 sprite editor.</p>
+        <p>MSX SpriteMate is an expanding sprite editor for the MSX family. It currently supports MSX1 TMS9918A and MSX2 V9938 Sprite Mode 2, with more targets and modes planned. It is based on <strong>Spritemate</strong>, the original Commodore 64 sprite editor.</p>
         <dl>
           <dt>Original editor</dt><dd>Spritemate by Ingo Hinterding (awsm)</dd>
           <dt>Original project</dt><dd><a href="https://github.com/Esshahn/spritemate" target="_blank" rel="noreferrer">github.com/Esshahn/spritemate</a></dd>
