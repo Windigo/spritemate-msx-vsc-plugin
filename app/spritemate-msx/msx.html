@@ -200,10 +200,11 @@
         <section>
           <h3>Draw a sprite</h3>
           <ul>
-            <li>Choose an MSX target, sprite size, and drawing mode. MSX1 uses the TMS9918A fixed palette and one color for each sprite; MSX2 Sprite Mode 2 adds per-scanline colors and CC, IC, and EC controls.</li>
+            <li><strong>Target</strong> selects the hardware the sprite data is for. <strong>MSX1 · TMS9918A</strong> uses the fixed 16-color palette and one color per sprite. <strong>MSX2 · V9938 Sprite Mode 2</strong> allows a color per scanline and provides CC, IC, and EC controls. The target changes the available controls, preview, and generated output.</li>
+            <li>Choose an 8 × 8 or 16 × 16 sprite and select <strong>Single sprite</strong> or <strong>Sprite pair</strong>. The pair mode uses two independent sprites on MSX1 and supports Sprite 1's CC overlay on MSX2.</li>
             <li>Click or drag on the canvas to draw. Right-click or hold <kbd>Shift</kbd> while drawing to erase.</li>
             <li>In pair mode, edit both sprites separately. MSX2 can use Sprite 1 as a CC overlay. MSX1 uses independent colors and gives Sprite 0 priority wherever both sprites have a pixel. The inactive sprite appears translucently in its own color; while editing Sprite 1, a blue border marks its pixels underneath higher-priority Sprite 0 pixels.</li>
-            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 uses one fixed-palette color per sprite, Early Clock, and 1× or 2× magnification. Early Clock shifts the entire sprite 32 pixels left.</li>
+            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 has one fixed-palette color per sprite, Early Clock, and 1× or 2× magnification. Early Clock shifts the entire sprite 32 pixels left; magnification doubles its displayed size in both directions.</li>
           </ul>
         </section>
         <section>
@@ -223,13 +224,13 @@
             <li><strong>+ Frame</strong> adds a blank frame. <strong>Duplicate frame</strong> copies the selected frame. Use the arrows to change frame order; <strong>Delete frame</strong> removes it.</li>
             <li>Drag a frame onto another animation row to copy it there. Its frame duration is copied too; the original stays in place.</li>
             <li>Select any frame to edit it, including while playback is running. Adding, removing, or moving frames does not stop playback.</li>
-            <li>Set the selected frame's duration with the slider, then choose <strong>Loop</strong> or <strong>Ping-pong</strong> and press <strong>Play</strong>.</li>
+            <li>Set the selected frame's duration with the slider. Turn on <strong>Same for all frames</strong> to apply that duration to every frame in the active animation; turn it off to set each frame separately. Then choose <strong>Loop</strong> or <strong>Ping-pong</strong> and press <strong>Play</strong>.</li>
           </ul>
         </section>
         <section>
           <h3>Save and export</h3>
           <ul>
-            <li>Use <strong>Save project</strong> to download your editable project, or <strong>Open project</strong> to load one.</li>
+            <li>Use <strong>Save project</strong> to download your editable project, or <strong>Open project</strong> to load one. A project stores its target, sprite size and mode, MSX1 magnification, sprites, animations, frame timing, and playback settings. The editor also remembers the selected target and magnification after a refresh.</li>
             <li><strong>Generated data</strong> updates as you edit. Choose C, Z80 Assembly, or MSX BASIC DATA in the format menu, then use the export button to download it.</li>
             <li>Panels can be dragged by their headers and collapsed with the control in the panel heading.</li>
           </ul>
