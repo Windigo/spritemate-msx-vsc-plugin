@@ -2,7 +2,7 @@
   "name": "spritemate-msx-vscode-plugin",
   "displayName": "MSX SpriteMate",
   "description": "Design MSX2 V9938 sprites and animations in VS Code. Preview CC color mixing and export C, Z80 assembly, or MSX BASIC DATA.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "MennoHomanWindigo",
   "author": "Menno Homan (Windigo)",
   "repository": {

@@ -1283,17 +1283,34 @@ sizePicker.addEventListener("change", () => {
 });
 
 document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
+  const activeAnimation = animations[activeAnimationIndex];
+  if (activeAnimation) {
+    // Keep the active clip's canonical data in sync before taking the project
+    // snapshot. The editor uses local aliases while switching and editing clips.
+    activeAnimation.frames = animationFrames;
+    activeAnimation.frameDurationsMs = frameDurationsMs;
+    activeAnimation.playbackMode = playbackMode;
+    activeAnimation.currentFrameIndex = currentFrameIndex;
+  }
+
+  const savedAnimations = animations.map((animation) => ({
+    name: animation.name,
+    frames: animation.frames.map(cloneFrame),
+    frameDurationsMs: [...animation.frameDurationsMs],
+    playbackMode: animation.playbackMode,
+    currentFrameIndex: animation.currentFrameIndex ?? 0,
+  }));
   project.spriteMode = spriteMode;
-  project.animations = animations;
+  project.animations = savedAnimations;
   project.currentAnimationIndex = activeAnimationIndex;
-  project.animationFrames = animationFrames;
-  project.frameDurationsMs = frameDurationsMs;
+  project.animationFrames = savedAnimations[activeAnimationIndex]?.frames ?? [];
+  project.frameDurationsMs = savedAnimations[activeAnimationIndex]?.frameDurationsMs ?? [];
   project.frameDurationMs = frameDurationMs;
   project.currentFrameIndex = currentFrameIndex;
   project.playbackMode = playbackMode;
   project.onionSkinEnabled = onionSkin.checked;
   project.onionOpacity = onionOpacityValuePercent;
-  project.sprites = animationFrames[currentFrameIndex];
+  project.sprites = savedAnimations[activeAnimationIndex]?.frames[currentFrameIndex] ?? cloneFrame(project.sprites);
   const projectText = JSON.stringify(project, null, 2);
   if (customEditorMode && vscodeApi) vscodeApi.postMessage({ type: "save-project", text: projectText });
   else download("sprite-animation.msxsm", projectText, "application/json");
