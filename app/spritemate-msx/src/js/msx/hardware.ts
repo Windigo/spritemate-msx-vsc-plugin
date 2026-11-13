@@ -9,6 +9,7 @@ export type SpriteSize = 8 | 16;
 export interface HardwareProfile {
   target: MsxTarget;
   label: string;
+  maxSprites: number;
   maxSpritesPerScanline: number;
   colorsPerSpriteLine: number;
   scanlineColors: boolean;
@@ -18,6 +19,7 @@ export const HARDWARE_PROFILES: Record<MsxTarget, HardwareProfile> = {
   msx1: {
     target: "msx1",
     label: "MSX1 (TMS9918A)",
+    maxSprites: 32,
     maxSpritesPerScanline: 4,
     colorsPerSpriteLine: 1,
     scanlineColors: false,
@@ -25,6 +27,7 @@ export const HARDWARE_PROFILES: Record<MsxTarget, HardwareProfile> = {
   msx2: {
     target: "msx2",
     label: "MSX2 (V9938 Sprite Mode 2)",
+    maxSprites: 32,
     maxSpritesPerScanline: 8,
     colorsPerSpriteLine: 1,
     scanlineColors: true,
@@ -37,6 +40,8 @@ export interface SpriteData {
   pixels: SpritePixels;
   /** Sprite foreground color (MSX palette index 0–15; zero is transparent). */
   color: number;
+  /** TMS9918A EC flag in the single sprite color byte. */
+  earlyClockGlobal?: boolean;
   /** Optional foreground color per row, for V9938 Sprite Mode 2. */
   lineColors?: number[];
   /** V9938 CC bit (bit 6): joins a priority group; same-priority overlaps OR color codes. */
@@ -133,7 +138,7 @@ export function encodeSprite(sprite: SpriteData, size: SpriteSize, target: MsxTa
   }
 
   const colors = target === "msx1"
-    ? [sprite.color & 0x0f]
+    ? [(sprite.color & 0x0f) | (sprite.earlyClockGlobal ? 0x80 : 0)]
     : Array.from({ length: size }, (_, y) => {
         const color = (sprite.lineColors?.[y] ?? sprite.color) & 0x0f;
         return encodeV9938ColorLine({

@@ -214,3 +214,111 @@ export function exportMsx2AnimationBasic(
   addData(encodePaletteRegisters(palette));
   return lines.join("\n");
 }
+
+/** Export MSX1 TMS9918A animation patterns and one fixed-palette color per sprite. */
+export function exportMsx1Animation(
+  animations: Msx2Animation[],
+  spriteCount: 1 | 2,
+  size: SpriteSize,
+  format: "c" | "asm" | "basic",
+  magnification: 1 | 2 = 1,
+): string {
+  if (!animations.length) throw new Error("Project must contain at least one animation.");
+  animations.forEach((animation, animationIndex) => {
+    if (!animation.frames.length || animation.frameDurationsMs.length !== animation.frames.length) {
+      throw new Error(`Animation ${animationIndex + 1} must contain frames with a duration for each frame.`);
+    }
+    animation.frames.forEach((sprites, frameIndex) => {
+      if (sprites.length < spriteCount) throw new Error(`Animation ${animationIndex + 1}, frame ${frameIndex + 1} has too few sprites for this mode.`);
+    });
+  });
+  if (format === "c") {
+    const parts = [
+      `/* MSX1 TMS9918A · ${size}x${size} patterns · ${magnification}x magnification · ${spriteCount} sprite(s) per frame. */`,
+      "/* SAT color byte: bit 7 Early Clock, bits 3-0 color; color 0 is transparent. */",
+      "/* Hardware limits: 32 sprites total, at most 4 on a scanline. Set sprite size/magnification in VDP register 1. */",
+      "typedef struct { u16 duration_ms; const u8* pattern0; u8 color0; const u8* pattern1; u8 color1; } Msx1SpriteFrame;",
+      "typedef struct { const char* name; const Msx1SpriteFrame* frames; u8 frame_count; u8 ping_pong; } Msx1SpriteAnimation;",
+      `const u8 sprite_size = ${size}; /* configure VDP register 1 */`,
+      `const u8 sprite_magnification = ${magnification}; /* configure VDP register 1 */`,
+    ];
+    const animationRows: string[] = [];
+    animations.forEach((animation, animationIndex) => {
+      const tableName = animations.length === 1 ? "sprite_animation_frames" : `sprite_animation_${animationIndex}_frames`;
+      const frameRows: string[] = [];
+      animation.frames.forEach((sprites, frameIndex) => {
+        const fields: string[] = [];
+        sprites.slice(0, spriteCount).forEach((sprite, spriteIndex) => {
+          const encoded = encodeSprite({ pixels: sprite.pixels, color: sprite.scanlines[0]?.color ?? 1, earlyClockGlobal: sprite.msx1EarlyClock }, size, "msx1");
+          const prefix = `anim_a${String(animationIndex).padStart(2, "0")}_f${String(frameIndex).padStart(2, "0")}_s${spriteIndex}`;
+          const patternName = `${prefix}_pattern`;
+          const colorName = `${prefix}_color`;
+          parts.push(`/* ${cleanComment(animation.name)}, frame ${frameIndex + 1}, Sprite ${spriteIndex}. */`, formatArray(patternName, encoded.pattern), `const u8 ${colorName} = ${encoded.colors[0]};`);
+          fields.push(patternName, colorName);
+        });
+        if (spriteCount === 1) fields.push("0", "0");
+        frameRows.push(`    { ${animation.frameDurationsMs[frameIndex]}, ${fields.join(", ")} }`);
+      });
+      parts.push(`const Msx1SpriteFrame ${tableName}[] = {\n${frameRows.join(",\n")}\n};`);
+      const name = `"${cleanComment(animation.name).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+      animationRows.push(`    { ${name}, ${tableName}, ${animation.frames.length}, ${animation.playbackMode === "pingpong" ? 1 : 0} }`);
+    });
+    parts.push(`const Msx1SpriteAnimation sprite_animations[] = {\n${animationRows.join(",\n")}\n};`, `const u8 sprite_animation_count = ${animations.length};`);
+    return parts.join("\n\n");
+  }
+  if (format === "asm") {
+    const lines = [
+      `; MSX1 TMS9918A · ${size}x${size} sprite patterns · ${magnification}x magnification · ${spriteCount} sprite(s) per frame`,
+      "; SAT color byte: bit 7 Early Clock, bits 3-0 color; color 0 is transparent.",
+      "; VDP limits: 32 sprites total, at most 4 sprites on each scanline.",
+      "; Set sprite size and magnification in VDP register 1.",
+      `sprite_size: db ${size}`,
+      `sprite_magnification: db ${magnification}`,
+      "",
+    ];
+    const animationRows: string[] = [];
+    animations.forEach((animation, animationIndex) => {
+      const tableName = `sprite_animation_${String(animationIndex).padStart(2, "0")}_frames`;
+      lines.push(`; Animation ${animationIndex + 1}: ${cleanComment(animation.name)} (${animation.playbackMode})`);
+      animation.frames.forEach((sprites, frameIndex) => {
+        const frameLabel = `anim_a${String(animationIndex).padStart(2, "0")}_f${String(frameIndex).padStart(2, "0")}`;
+        lines.push(`${frameLabel}:`, `    dw ${animation.frameDurationsMs[frameIndex]}`);
+        sprites.slice(0, spriteCount).forEach((sprite, spriteIndex) => {
+          const encoded = encodeSprite({ pixels: sprite.pixels, color: sprite.scanlines[0]?.color ?? 1, earlyClockGlobal: sprite.msx1EarlyClock }, size, "msx1");
+          const prefix = `${frameLabel}_s${spriteIndex}`;
+          lines.push(`    dw ${prefix}_pattern`, `    db ${encoded.colors[0]} ; SAT color: bit 7 EC, bits 3-0 color`, `${prefix}_pattern:`, formatAsmBytes(encoded.pattern));
+        });
+        if (spriteCount === 1) lines.push("    dw 0", "    db 0");
+      });
+      lines.push(`${tableName}:`, `    dw ${animation.frames.map((_, frameIndex) => `anim_a${String(animationIndex).padStart(2, "0")}_f${String(frameIndex).padStart(2, "0")}`).join(", ")}`, `    db ${animation.frames.length}, ${animation.playbackMode === "pingpong" ? 1 : 0} ; frame count, ping-pong`, "");
+      animationRows.push(`    dw ${tableName}`);
+    });
+    lines.push("sprite_animations:", ...animationRows, "sprite_animation_count:", `    db ${animations.length}`);
+    return lines.join("\n");
+  }
+  const lines: string[] = [];
+  let lineNumber = 10;
+  const addRem = (message: string) => lines.push(`${lineNumber++} REM ${cleanComment(message)}`);
+  const addData = (values: number[]) => {
+    for (let offset = 0; offset < values.length; offset += 12) lines.push(`${lineNumber++} DATA ${values.slice(offset, offset + 12).join(",")}`);
+  };
+  addRem(`MSX1 TMS9918A sprites ${size}x${size}; ${magnification}x magnification; pattern bytes and one SAT color byte per sprite.`);
+  addRem("SAT color byte: bit 7 Early Clock, bits 3-0 color. Color 0 is transparent. Max 32 sprites total and 4 per scanline.");
+  addRem("Set sprite size and magnification in VDP register 1.");
+  addData([animations.length, spriteCount, size, magnification]);
+  animations.forEach((animation, animationIndex) => {
+    addRem(`Animation ${animationIndex + 1}: ${animation.name} (${animation.playbackMode})`);
+    addData([animation.frames.length, animation.playbackMode === "pingpong" ? 1 : 0]);
+    animation.frames.forEach((sprites, frameIndex) => {
+      const duration = animation.frameDurationsMs[frameIndex];
+      addData([duration & 0xff, (duration >> 8) & 0xff]);
+      sprites.slice(0, spriteCount).forEach((sprite, spriteIndex) => {
+        const encoded = encodeSprite({ pixels: sprite.pixels, color: sprite.scanlines[0]?.color ?? 1, earlyClockGlobal: sprite.msx1EarlyClock }, size, "msx1");
+        addRem(`Animation ${animation.name}, frame ${frameIndex + 1}, Sprite ${spriteIndex} pattern`);
+        addData(encoded.pattern);
+        addData(encoded.colors);
+      });
+    });
+  });
+  return lines.join("\n");
+}

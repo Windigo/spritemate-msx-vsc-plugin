@@ -13,6 +13,8 @@ export interface Msx2Sprite {
   name: string;
   pixels: SpritePixels;
   scanlines: Msx2Scanline[];
+  /** MSX1 EC flag: shifts the sprite 32 dots left. */
+  msx1EarlyClock?: boolean;
 }
 
 export interface Msx2Animation {
@@ -27,8 +29,9 @@ export interface Msx2Animation {
 export interface Msx2Project {
   format: "spritemate-msx";
   version: 1;
-  target: "msx2-v9938-sm2";
+  target: "msx1-tms9918a" | "msx2-v9938-sm2";
   spriteSize: SpriteSize;
+  magnification?: 1 | 2;
   /** Sixteen palette register values, each packed as a 9-bit RRR-GGG-BBB color. */
   palette: number[];
   sprites: Msx2Sprite[];
@@ -52,6 +55,7 @@ export function createMsx2Sprite(name: string, size: SpriteSize): Msx2Sprite {
     name,
     pixels: Array.from({ length: size }, () => Array<number>(size).fill(0)),
     scanlines: createMsx2Scanlines(size),
+    msx1EarlyClock: false,
   };
 }
 

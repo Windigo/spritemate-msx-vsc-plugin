@@ -1,5 +1,5 @@
-import { colorIndexToCss, colorIndexToHex, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
+import { colorIndexToCss, colorIndexToHex, DEFAULT_PALETTE, MSX1_PALETTE, packRgb3, unpackRgb3 } from "./palette";
+import { exportMsx1Animation, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
@@ -15,6 +15,9 @@ declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 const canvas = document.querySelector<HTMLCanvasElement>("#sprite-canvas")!;
 const context = canvas.getContext("2d")!;
 const sizePicker = document.querySelector<HTMLSelectElement>("#sprite-size")!;
+const targetPicker = document.querySelector<HTMLSelectElement>("#sprite-target")!;
+const magnificationPicker = document.querySelector<HTMLSelectElement>("#sprite-magnification")!;
+const msx1ColorSettings = document.querySelector<HTMLDivElement>("#msx1-color-settings")!;
 const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
 const editorVersion = document.querySelector<HTMLElement>("#editor-version")!;
 const customEditorMode = document.querySelector<HTMLMetaElement>('meta[name="msxsm-custom-editor"]')?.content === "true";
@@ -71,6 +74,9 @@ let selectedPaletteSlot = 1;
 let selectedLayer = 0;
 let drawing = false;
 type EditorSettings = {
+  target: "msx1" | "msx2";
+  magnification: 1 | 2;
+  uniformFrameDuration: boolean;
   spriteSize: SpriteSize;
   spriteMode: "single" | "pair";
   onionSkinEnabled: boolean;
@@ -84,6 +90,9 @@ function readEditorSettings(): Partial<EditorSettings> {
     const value = JSON.parse(localStorage.getItem(settingsKey) || "null") as Partial<EditorSettings> | null;
     if (!value || typeof value !== "object") return {};
     return {
+      ...(value.target === "msx1" || value.target === "msx2" ? { target: value.target } : {}),
+      ...(value.magnification === 1 || value.magnification === 2 ? { magnification: value.magnification } : {}),
+      ...(typeof value.uniformFrameDuration === "boolean" ? { uniformFrameDuration: value.uniformFrameDuration } : {}),
       ...(value.spriteSize === 8 || value.spriteSize === 16 ? { spriteSize: value.spriteSize } : {}),
       ...(value.spriteMode === "single" || value.spriteMode === "pair" ? { spriteMode: value.spriteMode } : {}),
       ...(typeof value.onionSkinEnabled === "boolean" ? { onionSkinEnabled: value.onionSkinEnabled } : {}),
@@ -95,6 +104,13 @@ function readEditorSettings(): Partial<EditorSettings> {
 }
 const savedEditorSettings = readEditorSettings();
 project = createMsx2Project(savedEditorSettings.spriteSize ?? 16);
+let msxTarget: "msx1" | "msx2" = savedEditorSettings.target ?? "msx2";
+let msx2Palette = [...project.palette];
+project.target = msxTarget === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2";
+project.magnification = savedEditorSettings.magnification ?? 1;
+magnificationPicker.value = String(project.magnification);
+project.palette = msxTarget === "msx1" ? [...MSX1_PALETTE] : [...DEFAULT_PALETTE];
+targetPicker.value = msxTarget;
 sizePicker.value = String(project.spriteSize);
 let spriteMode: "single" | "pair" = savedEditorSettings.spriteMode ?? "pair";
 let animationFrames = [project.sprites];
@@ -105,7 +121,7 @@ let frameDurationsMs = [frameDurationMs];
 let playbackTimer: number | null = null;
 let isPlaying = false;
 let playbackMode: "loop" | "pingpong" = savedEditorSettings.playbackMode ?? "loop";
-let animations: Msx2Animation[] = [{ name: "Animation 1", frames: animationFrames, frameDurationsMs, uniformFrameDuration: false, playbackMode }];
+let animations: Msx2Animation[] = [{ name: "Animation 1", frames: animationFrames, frameDurationsMs, uniformFrameDuration: savedEditorSettings.uniformFrameDuration ?? false, playbackMode }];
 let activeAnimationIndex = 0;
 let playbackDirection: 1 | -1 = 1;
 onionSkin.checked = savedEditorSettings.onionSkinEnabled ?? false;
@@ -119,6 +135,9 @@ playbackModePicker.value = playbackMode;
 
 function saveEditorSettings(): void {
   const settings: EditorSettings = {
+    target: msxTarget,
+    magnification: project.magnification ?? 1,
+    uniformFrameDuration: animations[activeAnimationIndex]?.uniformFrameDuration === true,
     spriteSize: project.spriteSize,
     spriteMode,
     onionSkinEnabled: onionSkin.checked,
@@ -130,15 +149,68 @@ function saveEditorSettings(): void {
 }
 
 const layoutKey = "spritemate-msx2-window-layout";
+const panelsLayoutKey = `${layoutKey}-panels`;
 const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel")).filter((panel) => panel.dataset.panel !== "export");
 const codePanel = document.querySelector<HTMLElement>(".export-panel")!;
 const desktopWorkspaceKey = "spritemate-desktop-panel-tabs";
+const desktopActiveWorkspaceKey = "spritemate-desktop-active-tab";
 type WindowLayoutEntry = { left: number; top: number; width: number; height: number; zIndex?: number; collapsed?: boolean };
 type WindowLayout = Record<string, WindowLayoutEntry>;
-function readWindowLayout(): WindowLayout {
-  try { return JSON.parse(localStorage.getItem(layoutKey) || "{}"); } catch { return {}; }
+function readWindowLayout(workspace: "work" | "panels" = "work"): WindowLayout {
+  const key = workspace === "panels" ? panelsLayoutKey : layoutKey;
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return JSON.parse(stored) as WindowLayout;
+    if (workspace === "panels") return readWindowLayout("work");
+  } catch { /* Fall back to the legacy layout if the workspace has none. */ }
+  return {};
+}
+
+function writeWindowLayout(workspace: "work" | "panels", layout: WindowLayout): void {
+  const key = workspace === "panels" ? panelsLayoutKey : layoutKey;
+  try { localStorage.setItem(key, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
+}
+
+function capturePanelLayout(panel: HTMLElement): WindowLayoutEntry {
+  return {
+    left: panel.offsetLeft,
+    top: panel.offsetTop,
+    width: panel.offsetWidth || Number.parseFloat(panel.style.width) || 320,
+    height: panel.classList.contains("collapsed")
+      ? Number(panel.dataset.expandedHeight) || panel.offsetHeight || Number.parseFloat(panel.style.height) || 150
+      : panel.offsetHeight || Number.parseFloat(panel.style.height) || 150,
+    zIndex: Number(panel.style.zIndex) || 0,
+    collapsed: panel.classList.contains("collapsed"),
+  };
+}
+
+function applyPanelLayout(panel: HTMLElement, position: WindowLayoutEntry): void {
+  panel.style.width = `${Math.max(position.width, 320)}px`;
+  panel.style.height = `${Math.max(position.height, 150)}px`;
+  panel.style.left = `${Math.max(position.left, 0)}px`;
+  panel.style.top = `${Math.max(position.top, 0)}px`;
+  if (Number.isFinite(position.zIndex) && position.zIndex! > 0) panel.style.zIndex = String(position.zIndex);
+  panel.classList.toggle("collapsed", Boolean(position.collapsed));
+  updateCollapseButton(panel, Boolean(position.collapsed));
+}
+
+function restoreWorkspaceLayout(workspace: "work" | "panels"): void {
+  if (window.innerWidth <= 960) return;
+  const layout = readWindowLayout(workspace);
+  for (const panel of panels) {
+    if (panel.dataset.workspace !== workspace || panel.parentElement?.hidden === true) continue;
+    const position = layout[panel.dataset.panel || ""];
+    const parent = panel.parentElement;
+    if (!parent || !position || ![position.left, position.top, position.width, position.height].every(Number.isFinite)) continue;
+    applyPanelLayout(panel, position);
+    const maxLeft = Math.max(0, parent.clientWidth - panel.offsetWidth);
+    const maxTop = Math.max(0, parent.clientHeight - 45);
+    panel.style.left = `${Math.max(0, Math.min(position.left, maxLeft))}px`;
+    panel.style.top = `${Math.max(0, Math.min(position.top, maxTop))}px`;
+  }
 }
 let movePanelToTab: ((panel: HTMLElement, tab: "work" | "panels") => void) | null = null;
+let workspaceLayoutTransition = false;
 
 function updateCollapseButton(panel: HTMLElement, collapsed: boolean): void {
   const button = panel.querySelector<HTMLButtonElement>(".window-collapse");
@@ -159,22 +231,14 @@ function updateMoveButtonLabel(button: HTMLButtonElement, destination: string): 
 }
 
 function saveWindowLayout(): void {
-  if (window.innerWidth <= 960) return;
-  const layout = readWindowLayout();
-  const visiblePanels = panels.filter((panel) => panel.parentElement?.hidden !== true);
-  for (const panel of visiblePanels) {
-    layout[panel.dataset.panel || ""] = {
-      left: panel.offsetLeft,
-      top: panel.offsetTop,
-      width: panel.offsetWidth,
-      height: panel.classList.contains("collapsed")
-        ? Number(panel.dataset.expandedHeight) || panel.offsetHeight
-        : panel.offsetHeight,
-      zIndex: Number(panel.style.zIndex) || 0,
-      collapsed: panel.classList.contains("collapsed"),
-    };
-  }
-  try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
+  if (window.innerWidth <= 960 || workspaceLayoutTransition) return;
+  let workspace: "work" | "panels";
+  try { workspace = localStorage.getItem(desktopActiveWorkspaceKey) === "panels" ? "panels" : "work"; }
+  catch { workspace = "work"; }
+  const layout = readWindowLayout(workspace);
+  const visiblePanels = panels.filter((panel) => panel.dataset.workspace === workspace && panel.parentElement?.hidden !== true);
+  for (const panel of visiblePanels) layout[panel.dataset.panel || ""] = capturePanelLayout(panel);
+  writeWindowLayout(workspace, layout);
 }
 
 function setupWindowLayout(): void {
@@ -230,9 +294,30 @@ function setupWindowLayout(): void {
     const workspaces = { work: workWorkspace, panels: panelsWorkspace, code: codeWorkspace };
     let placement: Record<string, "work" | "panels" | "code"> = {};
     try { placement = JSON.parse(localStorage.getItem(desktopWorkspaceKey) || "{}"); } catch { /* Use the work tab defaults. */ }
+    try {
+      if (localStorage.getItem(panelsLayoutKey) === null) {
+        const legacyLayout = readWindowLayout("work");
+        const migratedPanelsLayout: WindowLayout = {};
+        for (const panel of panels) {
+          const panelKey = panel.dataset.panel || "";
+          if (placement[panelKey] === "panels" && legacyLayout[panelKey]) migratedPanelsLayout[panelKey] = legacyLayout[panelKey];
+        }
+        writeWindowLayout("panels", migratedPanelsLayout);
+      }
+    } catch { /* Keep default panel positions if storage is unavailable. */ }
+    const savePlacement = () => {
+      for (const panel of panels) {
+        const panelKey = panel.dataset.panel || "";
+        const tab = panel.dataset.workspace;
+        if (tab === "work" || tab === "panels") placement[panelKey] = tab;
+      }
+      try { localStorage.setItem(desktopWorkspaceKey, JSON.stringify(placement)); } catch { /* Storage can be disabled. */ }
+    };
     for (const panel of panels) {
       const panelKey = panel.dataset.panel || "";
-      const tab = placement[panelKey] ?? (panelKey === "export" ? "code" : "work");
+      const savedTab = placement[panelKey];
+      const tab = savedTab === "panels" ? "panels" : panelKey === "export" ? "code" : "work";
+      panel.dataset.workspace = tab;
       placement[panelKey] = tab;
       workspaces[tab].append(panel);
     }
@@ -245,12 +330,23 @@ function setupWindowLayout(): void {
         tabs[name as keyof typeof tabs].classList.toggle("active", name === tab);
         tabs[name as keyof typeof tabs].setAttribute("aria-selected", String(name === tab));
       });
+      try { localStorage.setItem(desktopActiveWorkspaceKey, tab); } catch { /* Storage can be disabled. */ }
+      savePlacement();
     };
     movePanelToTab = (panel, tab) => {
       const panelKey = panel.dataset.panel || "";
+      const targetLayout = readWindowLayout(tab);
+      const savedTargetPosition = targetLayout[panelKey];
+      const nextPosition = savedTargetPosition ?? capturePanelLayout(panel);
       workspaces[tab].append(panel);
+      panel.dataset.workspace = tab;
+      applyPanelLayout(panel, nextPosition);
+      if (!savedTargetPosition) {
+        targetLayout[panelKey] = nextPosition;
+        writeWindowLayout(tab, targetLayout);
+      }
       placement[panelKey] = tab;
-      localStorage.setItem(desktopWorkspaceKey, JSON.stringify(placement));
+      savePlacement();
       const moveButton = panel.querySelector<HTMLButtonElement>(".window-move-tab");
       if (moveButton) {
         const destination = tab === "work" ? "Panels" : "Work";
@@ -260,10 +356,29 @@ function setupWindowLayout(): void {
       }
       saveWindowLayout();
     };
-    workTab.addEventListener("click", () => showTab("work"));
-    panelsTab.addEventListener("click", () => showTab("panels"));
-    codeTab.addEventListener("click", () => showTab("code"));
-    showTab("work");
+    const activateTab = (tab: "work" | "panels" | "code") => {
+      saveWindowLayout();
+      workspaceLayoutTransition = true;
+      showTab(tab);
+      // Wait until the newly visible workspace has a real layout size before
+      // restoring its positions. ResizeObserver can fire during this transition;
+      // saveWindowLayout is paused so the old tab geometry cannot overwrite it.
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        if (tab !== "code") restoreWorkspaceLayout(tab);
+        workspaceLayoutTransition = false;
+        saveWindowLayout();
+      }));
+    };
+    workTab.addEventListener("click", () => activateTab("work"));
+    panelsTab.addEventListener("click", () => activateTab("panels"));
+    codeTab.addEventListener("click", () => activateTab("code"));
+    let savedWorkspace = "work";
+    try {
+      const value = localStorage.getItem(desktopActiveWorkspaceKey);
+      if (value === "work" || value === "panels" || value === "code") savedWorkspace = value;
+    } catch { /* Start in Work if storage is unavailable. */ }
+    showTab(savedWorkspace as "work" | "panels" | "code");
+    window.addEventListener("pagehide", savePlacement);
     panels.forEach((panel) => {
       const handle = panel.querySelector<HTMLElement>(".window-handle");
       if (!handle) return;
@@ -280,7 +395,7 @@ function setupWindowLayout(): void {
         const panelKey = panel.dataset.panel || "";
         const current = placement[panelKey] ?? "work";
         const destination = current === "work" ? "panels" : "work";
-        const destinationLabel = destination === "work" ? "Work" : destination === "code" ? "Code" : "Panels";
+        const destinationLabel = destination === "work" ? "Work" : "Panels";
         updateMoveButtonLabel(moveButton, destinationLabel);
         moveButton.title = `Move panel to ${destinationLabel} tab`;
         moveButton.setAttribute("aria-label", moveButton.title);
@@ -323,7 +438,7 @@ function setupWindowLayout(): void {
     updateCollapseButton(panel, panel.classList.contains("collapsed"));
   }
 
-  const saved = readWindowLayout();
+  const saved = readWindowLayout("work");
   // Keep existing window positions when adding the preview window. Move only
   // the previous default export window so it does not cover the new preview.
   if (!saved.preview && saved.export?.left === 0 && saved.export.top === 762) {
@@ -346,23 +461,23 @@ function setupWindowLayout(): void {
   if (saved.preview?.left === 0 && saved.preview.top === 686 && saved.preview.height === 285) {
     saved.preview = { ...saved.preview, height: 420 };
   }
-  if (saved["cc-map"]?.left === 0 && saved["cc-map"].top === 987) {
-    saved["cc-map"] = { ...saved["cc-map"], top: 1122 };
+  if (saved["cc-map"]?.left === 0 && saved["cc-map"].top === 1122) {
+    saved["cc-map"] = { ...saved["cc-map"], top: 987 };
   }
   if (saved.export?.left === 0 && saved.export.top === 1563) {
     saved.export = { ...saved.export, top: 1698 };
   }
   if (window.innerWidth > 960) {
     for (const panel of panels) {
-      const position = saved[panel.dataset.panel || ""];
+      if (panel.parentElement?.hidden === true) continue;
+      const workspace = panel.dataset.workspace === "panels" ? "panels" : "work";
+      const positions = workspace === "panels" ? readWindowLayout("panels") : saved;
+      const position = positions[panel.dataset.panel || ""];
       if (!position || ![position.left, position.top, position.width, position.height].every(Number.isFinite)) continue;
+      applyPanelLayout(panel, position);
       panel.style.width = `${Math.min(Math.max(position.width, 320), Math.max(320, panel.parentElement!.clientWidth))}px`;
-      panel.style.height = `${Math.max(position.height, 150)}px`;
       panel.style.left = `${Math.max(0, Math.min(position.left, panel.parentElement!.clientWidth - panel.offsetWidth))}px`;
       panel.style.top = `${Math.max(0, Math.min(position.top, panel.parentElement!.clientHeight - 45))}px`;
-      if (Number.isFinite(position.zIndex) && position.zIndex! > 0) panel.style.zIndex = String(position.zIndex);
-      panel.classList.toggle("collapsed", Boolean(position.collapsed));
-      updateCollapseButton(panel, Boolean(position.collapsed));
     }
   }
 
@@ -411,8 +526,13 @@ function setupWindowLayout(): void {
 }
 
 document.querySelector<HTMLButtonElement>("#reset-layout")!.addEventListener("click", () => {
-  const visiblePanels = panels.filter((panel) => panel.parentElement?.hidden !== true);
-  const layout = readWindowLayout();
+  let workspace: "work" | "panels";
+  try { workspace = localStorage.getItem(desktopActiveWorkspaceKey) === "panels" ? "panels" : "work"; }
+  catch { workspace = "work"; }
+  const visiblePanels = panels.filter((panel) => panel.dataset.workspace === workspace
+    && panel.parentElement?.hidden !== true
+    && getComputedStyle(panel).display !== "none");
+  const layout = readWindowLayout(workspace);
   for (const panel of visiblePanels) {
     panel.style.left = "";
     panel.style.top = "";
@@ -422,13 +542,29 @@ document.querySelector<HTMLButtonElement>("#reset-layout")!.addEventListener("cl
     panel.classList.remove("collapsed");
     delete panel.dataset.expandedHeight;
     updateCollapseButton(panel, false);
-    delete layout[panel.dataset.panel || ""];
+  }
+  const panelWorkspace = visiblePanels[0]?.parentElement;
+  if (panelWorkspace && window.innerWidth > 960 && visiblePanels.length > 0) {
+    const columns = visiblePanels.length === 1 ? 1 : 2;
+    const gap = 16;
+    const columnWidth = Math.max(320, Math.floor((panelWorkspace.clientWidth - gap * (columns - 1)) / columns));
+    const columnTops = Array<number>(columns).fill(0);
+    for (const panel of visiblePanels) {
+      const column = columnTops.indexOf(Math.min(...columnTops));
+      panel.style.width = `${columnWidth}px`;
+      panel.style.left = `${column * (columnWidth + gap)}px`;
+      panel.style.top = `${columnTops[column]}px`;
+      columnTops[column] += panel.offsetHeight + gap;
+      layout[panel.dataset.panel || ""] = capturePanelLayout(panel);
+    }
+  } else {
+    for (const panel of visiblePanels) delete layout[panel.dataset.panel || ""];
   }
   if (codePanel.parentElement?.hidden !== true) {
     codePanel.scrollTop = 0;
     codePanel.querySelector("pre")?.scrollTo(0, 0);
   }
-  try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
+  writeWindowLayout(workspace, layout);
 });
 setupWindowLayout();
 
@@ -441,6 +577,7 @@ function cloneFrame(frame: typeof project.sprites): typeof project.sprites {
     name: sprite.name,
     pixels: sprite.pixels.map((row) => [...row]),
     scanlines: sprite.scanlines.map((line) => ({ ...line })),
+    msx1EarlyClock: sprite.msx1EarlyClock === true,
   }));
 }
 
@@ -868,6 +1005,30 @@ function advancePreview(): void {
   renderPreview();
 }
 
+function setTarget(target: "msx1" | "msx2"): void {
+  if (target === msxTarget) return;
+  stopPlayback();
+  if (msxTarget === "msx2") msx2Palette = [...project.palette];
+  msxTarget = target;
+  project.target = target === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2";
+  project.palette = target === "msx1" ? [...MSX1_PALETTE] : [...msx2Palette];
+  targetPicker.value = target;
+  render();
+  saveEditorSettings();
+}
+
+function setSpriteColor(spriteIndex: 0 | 1, color: number): void {
+  const frames = animations[activeAnimationIndex]?.frames ?? animationFrames;
+  frames.forEach((frame) => frame[spriteIndex]?.scanlines.forEach((line) => { line.color = color; }));
+  render();
+}
+
+function setSpriteEarlyClock(spriteIndex: 0 | 1, enabled: boolean): void {
+  const frames = animations[activeAnimationIndex]?.frames ?? animationFrames;
+  frames.forEach((frame) => { if (frame[spriteIndex]) frame[spriteIndex].msx1EarlyClock = enabled; });
+  render();
+}
+
 function setSpriteMode(mode: "single" | "pair"): void {
   stopPlayback();
   spriteMode = mode;
@@ -884,20 +1045,23 @@ function renderRowColorGuides(): void {
     element.replaceChildren();
     element.style.gridTemplateRows = `repeat(${project.spriteSize}, minmax(0, 1fr))`;
     for (let y = 0; y < project.spriteSize; y++) {
-      const slot = project.sprites[layer].scanlines[y].color;
-      const baseSlot = base.scanlines[y].color;
-      const overlayLine = overlay.scanlines[y];
-      const ccResult = overlayLine.overlapMix ? baseSlot | overlayLine.color : baseSlot;
+      const slot = project.sprites[layer].scanlines[msxTarget === "msx1" ? 0 : y].color;
+      const baseSlot = base.scanlines[msxTarget === "msx1" ? 0 : y].color;
+      const overlayLine = overlay.scanlines[msxTarget === "msx1" ? 0 : y];
+      const ccResult = msxTarget === "msx2" && overlayLine.overlapMix ? baseSlot | overlayLine.color : baseSlot;
       const effectiveSlot = layer === 0 ? slot : overlayLine.color;
       const hasOverlap = slot !== 0 && overlayLine.color !== 0
         && base.pixels[y].some((pixel, x) => pixel !== 0 && overlay.pixels[y][x] !== 0);
       const cell = document.createElement("div");
       cell.className = `row-guide-cell${y === selectedRow ? " selected" : ""}`;
-      cell.style.backgroundColor = colorIndexToCss(project.palette[ccResult]);
-      cell.style.color = ccResult > 7 ? "#071018" : "#f2f5f8";
-      cell.title = hasOverlap && overlayLine.overlapMix
-        ? `Row ${y + 1}: sprites overlap; CC P${String(baseSlot).padStart(2, "0")} OR P${String(overlayLine.color).padStart(2, "0")} = P${String(ccResult).padStart(2, "0")} ${colorIndexToHex(project.palette[ccResult])}`
-        : `Row ${y + 1}: Sprite ${layer} P${String(effectiveSlot).padStart(2, "0")}; CC result P${String(ccResult).padStart(2, "0")} ${colorIndexToHex(project.palette[ccResult])}`;
+      const guideBackground = msxTarget === "msx1" ? effectiveSlot : ccResult;
+      cell.style.backgroundColor = colorIndexToCss(project.palette[guideBackground]);
+      cell.style.color = guideBackground > 7 ? "#071018" : "#f2f5f8";
+      cell.title = msxTarget === "msx1"
+        ? `Sprite ${layer} color P${String(effectiveSlot).padStart(2, "0")} · fixed TMS9918A palette`
+        : hasOverlap && overlayLine.overlapMix
+          ? `Row ${y + 1}: sprites overlap; CC P${String(baseSlot).padStart(2, "0")} OR P${String(overlayLine.color).padStart(2, "0")} = P${String(ccResult).padStart(2, "0")} ${colorIndexToHex(project.palette[ccResult])}`
+          : `Row ${y + 1}: Sprite ${layer} P${String(effectiveSlot).padStart(2, "0")}; CC result P${String(ccResult).padStart(2, "0")} ${colorIndexToHex(project.palette[ccResult])}`;
       const code = document.createElement("span");
       code.textContent = `P${String(effectiveSlot).padStart(2, "0")}`;
       const swatch = document.createElement("span");
@@ -948,21 +1112,28 @@ function renderCanvas(): void {
         context.fillRect(px + 3, py + 3, scale - 6, scale - 6);
         context.globalAlpha = 1;
       }
-      const guidePixel = spriteMode === "pair" && guide.pixels[y][x] !== 0 && guide.scanlines[y].color !== 0;
-      const selectedPixel = selected.pixels[y][x] !== 0 && selected.scanlines[y].color !== 0;
+      const guideColor = guide.scanlines[msxTarget === "msx1" ? 0 : y].color;
+      const selectedColor = selected.scanlines[msxTarget === "msx1" ? 0 : y].color;
+      const guidePixel = spriteMode === "pair" && guide.pixels[y][x] !== 0 && guideColor !== 0;
+      const selectedPixel = selected.pixels[y][x] !== 0 && selectedColor !== 0;
       if (guidePixel) {
         context.globalAlpha = 0.45;
-        context.fillStyle = colorIndexToCss(project.palette[guide.scanlines[y].color]);
+        context.fillStyle = colorIndexToCss(project.palette[guideColor]);
         context.fillRect(px + 2, py + 2, scale - 4, scale - 4);
         context.globalAlpha = 1;
       }
       if (selectedPixel) {
         const inset = guidePixel ? 4 : 2;
-        const baseColor = project.sprites[0].scanlines[y].color;
-        const overlayLine = project.sprites[1].scanlines[y];
-        const overlapColor = overlayLine.overlapMix ? baseColor | overlayLine.color : baseColor;
-        context.fillStyle = colorIndexToCss(project.palette[guidePixel ? overlapColor : selected.scanlines[y].color]);
+        const baseColor = project.sprites[0].scanlines[msxTarget === "msx1" ? 0 : y].color;
+        const overlayLine = project.sprites[1].scanlines[msxTarget === "msx1" ? 0 : y];
+        const overlapColor = msxTarget === "msx2" && overlayLine.overlapMix ? baseColor | overlayLine.color : baseColor;
+        context.fillStyle = colorIndexToCss(project.palette[guidePixel ? overlapColor : selectedColor]);
         context.fillRect(px + inset, py + inset, scale - 2 * inset, scale - 2 * inset);
+        if (msxTarget === "msx1" && selectedLayer === 1 && guidePixel) {
+          context.strokeStyle = "#77a8ff";
+          context.lineWidth = Math.max(2, Math.round(scale * 0.12));
+          context.strokeRect(px + 2.5, py + 2.5, scale - 5, scale - 5);
+        }
       }
       context.strokeStyle = "#384757";
       context.lineWidth = 1;
@@ -972,51 +1143,61 @@ function renderCanvas(): void {
   context.fillStyle = "#dce8f2";
   context.fillRect(0, selectedRow * scale, canvas.width, 1);
   const line = selected.scanlines[selectedRow];
-  canvasStatus.textContent = `Sprite ${selectedLayer} · row ${selectedRow + 1} · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`;
+  canvasStatus.textContent = msxTarget === "msx1"
+    ? `Sprite ${selectedLayer} · all rows · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`
+    : `Sprite ${selectedLayer} · row ${selectedRow + 1} · P${String(line.color).padStart(2, "0")} · ${colorIndexToHex(project.palette[line.color])}`;
   renderRowColorGuides();
 }
 
 function frameHasPixel(frame: typeof project.sprites, x: number, y: number): boolean {
   const base = frame[0];
   const overlay = frame[1];
-  return (base.pixels[y][x] !== 0 && base.scanlines[y].color !== 0)
-    || (spriteMode === "pair" && overlay.pixels[y][x] !== 0 && overlay.scanlines[y].color !== 0);
+  return (base.pixels[y][x] !== 0 && base.scanlines[msxTarget === "msx1" ? 0 : y].color !== 0)
+    || (spriteMode === "pair" && overlay.pixels[y][x] !== 0 && overlay.scanlines[msxTarget === "msx1" ? 0 : y].color !== 0);
 }
 
 function renderPreview(): void {
   const previewSprites = animationFrames[isPlaying ? previewFrameIndex : currentFrameIndex] || project.sprites;
   const size = project.spriteSize;
   const scale = 12;
-  previewCanvas.width = size * scale;
-  previewCanvas.height = size * scale;
+  const displayScale = scale * (msxTarget === "msx1" ? project.magnification ?? 1 : 1);
+  previewCanvas.width = size * displayScale;
+  previewCanvas.height = size * displayScale;
   for (let y = 0; y < size; y++) {
     const base = previewSprites[0];
     const overlay = previewSprites[1];
-    const baseColor = base.scanlines[y].color;
-    const overlayColor = overlay.scanlines[y].color;
+    const baseColor = base.scanlines[msxTarget === "msx1" ? 0 : y].color;
+    const overlayColor = overlay.scanlines[msxTarget === "msx1" ? 0 : y].color;
     for (let x = 0; x < size; x++) {
       let color = 0;
       const basePixel = base.pixels[y][x] !== 0 && baseColor !== 0;
       const overlayPixel = spriteMode === "pair" && overlay.pixels[y][x] !== 0 && overlayColor !== 0;
-      if (basePixel && overlayPixel) color = overlay.scanlines[y].overlapMix ? baseColor | overlayColor : baseColor;
+      if (basePixel && overlayPixel) color = msxTarget === "msx2" && overlay.scanlines[y].overlapMix ? baseColor | overlayColor : baseColor;
       else if (basePixel) color = baseColor;
       else if (overlayPixel) color = overlayColor;
       previewContext.fillStyle = color === 0
         ? ((x + y) % 2 ? "#18212b" : "#202c38")
         : colorIndexToCss(project.palette[color]);
-      previewContext.fillRect(x * scale, y * scale, scale, scale);
+      previewContext.fillRect(x * displayScale, y * displayScale, displayScale, displayScale);
     }
   }
-  const baseColor = previewSprites[0].scanlines[selectedRow].color;
-  const overlayLine = previewSprites[1].scanlines[selectedRow];
-  const result = spriteMode === "single" ? baseColor : overlayLine.overlapMix ? baseColor | overlayLine.color : baseColor;
+  const colorRow = msxTarget === "msx1" ? 0 : selectedRow;
+  const baseColor = previewSprites[0].scanlines[colorRow].color;
+  const overlayLine = previewSprites[1].scanlines[colorRow];
+  const result = msxTarget === "msx2" && spriteMode === "pair" && overlayLine.overlapMix
+    ? baseColor | overlayLine.color
+    : baseColor;
   const code = (value: number) => `P${String(value).padStart(2, "0")}`;
   const bits = (value: number) => value.toString(2).padStart(4, "0");
-  overlapFormula.textContent = spriteMode === "single"
-    ? `Sprite 0 · ${code(baseColor)} (${bits(baseColor)})`
-    : overlayLine.overlapMix
-      ? `${code(baseColor)} (${bits(baseColor)}) OR ${code(overlayLine.color)} (${bits(overlayLine.color)}) = ${code(result)} (${bits(result)})`
-      : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
+  overlapFormula.textContent = msxTarget === "msx1"
+    ? spriteMode === "single"
+      ? `MSX1 Sprite 0 · ${code(baseColor)} · TMS9918A fixed color`
+      : `MSX1 priority · ${code(baseColor)} covers ${code(overlayLine.color)} where sprites overlap`
+    : spriteMode === "single"
+      ? `Sprite 0 · ${code(baseColor)} (${bits(baseColor)})`
+      : overlayLine.overlapMix
+        ? `${code(baseColor)} (${bits(baseColor)}) OR ${code(overlayLine.color)} (${bits(overlayLine.color)}) = ${code(result)} (${bits(result)})`
+        : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
   overlapSwatch.style.backgroundColor = colorIndexToCss(project.palette[result]);
   overlapColor.textContent = `${code(result)} · ${colorIndexToHex(project.palette[result])}`;
   updateAnimationFrameLabel();
@@ -1024,6 +1205,7 @@ function renderPreview(): void {
 
 function getGeneratedSource(): string {
   const spriteCount = spriteMode === "single" ? 1 : 2;
+  if (msxTarget === "msx1") return exportMsx1Animation(animations, spriteCount, project.spriteSize, exportFormat.value as "c" | "asm" | "basic", project.magnification ?? 1);
   if (exportFormat.value === "asm") return exportMsx2AnimationAsm(animations, spriteCount, project.spriteSize, project.palette);
   if (exportFormat.value === "basic") return exportMsx2AnimationBasic(animations, spriteCount, project.spriteSize, project.palette);
   return exportMsx2AnimationC(animations, spriteCount, project.spriteSize, project.palette);
@@ -1032,7 +1214,7 @@ function getGeneratedSource(): string {
 function updateExportFormatUi(): void {
   const format = exportFormat.value;
   const labels = {
-    c: { language: "MSXGL / C", button: "Export C data", extension: ".h" },
+    c: { language: msxTarget === "msx1" ? "MSX1 / C" : "MSXGL / C", button: "Export C data", extension: ".h" },
     asm: { language: "Z80 ASSEMBLY", button: "Export ASM data", extension: ".asm" },
     basic: { language: "MSX BASIC DATA", button: "Export BASIC data", extension: ".bas" },
   } as const;
@@ -1136,7 +1318,10 @@ function renderPaletteSlots(): void {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `palette-slot${slot === 0 ? " transparent-slot" : ""}`;
-    button.title = `Edit V9938 palette slot ${slot}: ${colorIndexToHex(colorIndex)}`;
+    button.title = msxTarget === "msx1"
+      ? `Fixed TMS9918A palette slot ${slot}: ${colorIndexToHex(colorIndex)}`
+      : `Edit V9938 palette slot ${slot}: ${colorIndexToHex(colorIndex)}`;
+    button.disabled = msxTarget === "msx1";
 
     const swatch = document.createElement("span");
     swatch.className = "palette-swatch";
@@ -1154,7 +1339,7 @@ function renderPaletteSlots(): void {
     hex.textContent = colorIndexToHex(colorIndex);
     meta.append(id, bits, hex);
     button.append(swatch, meta);
-    button.addEventListener("click", () => openPalettePicker(slot));
+    if (msxTarget === "msx2") button.addEventListener("click", () => openPalettePicker(slot));
     paletteSlotsElement.append(button);
   });
   renderCcMap();
@@ -1162,6 +1347,66 @@ function renderPaletteSlots(): void {
 
 function renderRows(): void {
   rowsElement.replaceChildren();
+  msx1ColorSettings.replaceChildren();
+  if (msxTarget === "msx1") {
+    const colorNames = ["Transparent", "Black", "Medium green", "Light green", "Dark blue", "Light blue", "Dark red", "Cyan", "Medium red", "Light red", "Dark yellow", "Light yellow", "Dark green", "Magenta", "Gray", "White"];
+    const spriteCount = spriteMode === "single" ? 1 : 2;
+    for (let spriteIndex = 0; spriteIndex < spriteCount; spriteIndex++) {
+      const sprite = project.sprites[spriteIndex];
+      const colorIndex = sprite.scanlines[0]?.color ?? 0;
+      const group = document.createElement("section");
+      group.className = "msx1-sprite-settings";
+      const heading = document.createElement("div");
+      heading.className = "msx1-sprite-settings-heading";
+      const title = document.createElement("strong");
+      title.textContent = `Sprite ${spriteIndex}`;
+      const swatch = document.createElement("span");
+      swatch.className = "msx1-color-swatch";
+      swatch.style.backgroundColor = colorIndexToCss(MSX1_PALETTE[colorIndex] ?? MSX1_PALETTE[0]);
+      heading.append(title, swatch);
+      const controls = document.createElement("div");
+      controls.className = "msx1-sprite-controls";
+      const colorLabel = document.createElement("label");
+      colorLabel.className = "msx1-color-control";
+      const colorCaption = document.createElement("span");
+      colorCaption.textContent = "Color";
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", `MSX1 color for Sprite ${spriteIndex} across its entire shape`);
+      for (let index = 0; index < colorNames.length; index++) {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `P${String(index).padStart(2, "0")} · ${colorNames[index]}`;
+        option.selected = colorIndex === index;
+        select.append(option);
+      }
+      select.addEventListener("change", () => {
+        const nextColor = Number(select.value);
+        swatch.style.backgroundColor = colorIndexToCss(MSX1_PALETTE[nextColor] ?? MSX1_PALETTE[0]);
+        setSpriteColor(spriteIndex as 0 | 1, nextColor);
+      });
+      colorLabel.append(colorCaption, select);
+      const earlyClockLabel = document.createElement("label");
+      earlyClockLabel.className = "msx1-early-clock";
+      const earlyClock = document.createElement("input");
+      earlyClock.type = "checkbox";
+      earlyClock.checked = sprite.msx1EarlyClock === true;
+      earlyClock.setAttribute("aria-label", `Early Clock for Sprite ${spriteIndex}, shift left 32 pixels`);
+      earlyClock.addEventListener("change", () => setSpriteEarlyClock(spriteIndex as 0 | 1, earlyClock.checked));
+      const earlyClockText = document.createElement("span");
+      earlyClockText.textContent = "Early Clock";
+      const earlyClockHint = document.createElement("small");
+      earlyClockHint.textContent = "Shift left 32 px";
+      earlyClockLabel.append(earlyClock, earlyClockText, earlyClockHint);
+      controls.append(colorLabel, earlyClockLabel);
+      group.append(heading, controls);
+      msx1ColorSettings.append(group);
+    }
+    const note = document.createElement("p");
+    note.className = "hint msx1-sprite-note";
+    note.textContent = "Each sprite keeps one color for its full height. Sprite 0 has priority where sprites overlap; Early Clock shifts a sprite 32 pixels left.";
+    msx1ColorSettings.append(note);
+    return;
+  }
   activeSprite().scanlines.forEach((activeLine, y) => {
     const baseLine = project.sprites[0].scanlines[y];
     const overlayLine = project.sprites[1].scanlines[y];
@@ -1321,6 +1566,7 @@ function buildRgbCube(): void {
 }
 
 function openPalettePicker(slot: number): void {
+  if (msxTarget === "msx1") return;
   selectedPaletteSlot = slot;
   pickerSlotNumber.textContent = String(slot).padStart(2, "0");
   updatePickerFromIndex(project.palette[slot]);
@@ -1328,16 +1574,38 @@ function openPalettePicker(slot: number): void {
 }
 
 function render(): void {
+  document.body.classList.toggle("msx1", msxTarget === "msx1");
+  targetPicker.value = msxTarget;
+  magnificationPicker.value = String(project.magnification ?? 1);
+  modePicker.options[1].textContent = msxTarget === "msx1" ? "Sprite pair · separate colors" : "Sprite pair + CC";
+  layerButtons[0].textContent = msxTarget === "msx1" ? "Sprite 0 · first priority" : "Sprite 0 · base";
+  layerButtons[1].textContent = msxTarget === "msx1" ? "Sprite 1 · independent" : "Sprite 1 · CC overlay";
+  document.querySelector<HTMLElement>("#canvas-footer-hint")!.textContent = msxTarget === "msx1"
+    ? selectedLayer === 1
+      ? "Sprite 0 has priority on overlap; a blue border marks Sprite 1 pixels placed there."
+      : "The other sprite appears translucent in its own color; Sprite 0 has priority on overlap."
+    : "The overlap preview shows the final CC color.";
+  document.querySelector<HTMLElement>("#preview-target-label")!.textContent = msxTarget === "msx1" ? "TMS9918A RESULT" : "V9938 RESULT";
+  document.querySelector<HTMLElement>("#palette-target-label")!.textContent = msxTarget === "msx1" ? "TMS9918A FIXED PALETTE" : "V9938 PALETTE";
+  document.querySelector<HTMLElement>("#palette-count")!.textContent = msxTarget === "msx1" ? "16 slots · fixed colors" : "16 slots · 512 colors";
+  document.querySelector<HTMLElement>("#palette-hint")!.textContent = msxTarget === "msx1"
+    ? "The TMS9918A has 16 fixed colors. Sprite color 0 is transparent; choose each sprite's color in Sprite data."
+    : "The 4 bits are the sprite color code used by CC OR. Click a slot to edit its RGB color.";
+  document.querySelector<HTMLElement>("#sprite-data-title")!.textContent = msxTarget === "msx1" ? "Sprite colors" : "Scanline settings";
+  document.querySelector<HTMLElement>("#sprite-data-label")!.textContent = msxTarget === "msx1" ? "TMS9918A SPRITE DATA" : "SPRITE DATA";
   if (animations[activeAnimationIndex]) animations[activeAnimationIndex].currentFrameIndex = currentFrameIndex;
   frameDurationMs = frameDurationsMs[currentFrameIndex] ?? frameDurationMs;
   frameDuration.value = String(frameDurationMs);
   frameDurationValue.textContent = `${frameDurationMs} ms`;
   uniformFrameDurationToggle.checked = animations[activeAnimationIndex]?.uniformFrameDuration === true;
   document.body.classList.toggle("single-sprite", spriteMode === "single");
-  previewHint.textContent = spriteMode === "single"
-    ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
-    : "The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.";
+  previewHint.textContent = msxTarget === "msx1"
+    ? "MSX1 preview: one fixed-palette color per sprite. Sprite 0 has priority; only 4 sprites can appear on each scanline."
+    : spriteMode === "single"
+      ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
+      : "The color codes are OR'ed where both sprite pixels overlap and CC is set on sprite 1.";
   modePicker.value = spriteMode;
+  updateExportFormatUi();
   layerButtons.forEach((button, index) => {
     button.classList.toggle("active", index === selectedLayer);
     button.setAttribute("aria-pressed", String(index === selectedLayer));
@@ -1383,6 +1651,13 @@ layerButtons.forEach((button, index) => button.addEventListener("click", () => {
   selectedLayer = index;
   render();
 }));
+targetPicker.addEventListener("change", () => setTarget(targetPicker.value as "msx1" | "msx2"));
+magnificationPicker.addEventListener("change", () => {
+  project.magnification = Number(magnificationPicker.value) === 2 ? 2 : 1;
+  renderPreview();
+  renderOutput();
+  saveEditorSettings();
+});
 modePicker.addEventListener("change", () => setSpriteMode(modePicker.value as "single" | "pair"));
 playButton.addEventListener("click", togglePlayback);
 playbackModePicker.addEventListener("change", () => {
@@ -1447,6 +1722,8 @@ sizePicker.addEventListener("change", () => {
   const size = Number(sizePicker.value) as SpriteSize;
   const palette = project.palette;
   project = createMsx2Project(size);
+  project.target = msxTarget === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2";
+  project.magnification = savedEditorSettings.magnification ?? 1;
   project.palette = palette;
   animationFrames = [project.sprites];
   frameDurationsMs = [frameDurationMs];
@@ -1457,6 +1734,7 @@ sizePicker.addEventListener("change", () => {
     name: "Animation 1",
     frames: animationFrames,
     frameDurationsMs,
+    uniformFrameDuration: savedEditorSettings.uniformFrameDuration ?? false,
     playbackMode,
     currentFrameIndex: 0,
   }];
@@ -1520,8 +1798,8 @@ updateExportFormatUi();
 
 function loadProjectText(projectText: string): void {
   const loaded = JSON.parse(projectText) as Partial<Msx2Project>;
-  if (loaded.format !== "spritemate-msx" || loaded.target !== "msx2-v9938-sm2" || (loaded.spriteSize !== 8 && loaded.spriteSize !== 16)) {
-    throw new Error("This is not a supported Spritemate MSX2 project.");
+  if (loaded.format !== "spritemate-msx" || (loaded.target !== "msx2-v9938-sm2" && loaded.target !== "msx1-tms9918a") || (loaded.spriteSize !== 8 && loaded.spriteSize !== 16)) {
+    throw new Error("This is not a supported MSX SpriteMate project.");
   }
   const size = loaded.spriteSize;
   if (!Array.isArray(loaded.sprites) || !loaded.sprites.length) throw new Error("Project has no sprites.");
@@ -1609,14 +1887,19 @@ function loadProjectText(projectText: string): void {
     : savedEditorSettings.onionOpacity ?? 25;
   onionOpacity.value = String(onionOpacityValuePercent);
   onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
+  msxTarget = loaded.target === "msx1-tms9918a" ? "msx1" : "msx2";
+  targetPicker.value = msxTarget;
   project = {
     format: "spritemate-msx",
     version: 1,
-    target: "msx2-v9938-sm2",
+    target: msxTarget === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2",
+    magnification: loaded.magnification === 2 ? 2 : 1,
     spriteSize: size,
-    palette: normalizeMsx2Palette(loaded.palette),
+    palette: msxTarget === "msx1" ? [...MSX1_PALETTE] : normalizeMsx2Palette(loaded.palette),
     sprites: animationFrames[currentFrameIndex],
   };
+  magnificationPicker.value = String(project.magnification);
+  if (msxTarget === "msx2") msx2Palette = [...project.palette];
   sizePicker.value = String(size);
   selectedLayer = 0;
   selectedRow = 0;

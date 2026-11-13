@@ -75,3 +75,15 @@ export function encodePaletteRegisters(palette: number[]): number[] {
 }
 
 export const DEFAULT_PALETTE = V9938_DEFAULT_PALETTE.map(packRgb3);
+
+/** Fixed TMS9918A sprite palette, represented with the editor RGB3 preview values. */
+export const MSX1_PALETTE = [
+  { r: 0, g: 0, b: 0 }, { r: 0, g: 0, b: 0 },
+  { r: 1, g: 6, b: 1 }, { r: 3, g: 7, b: 3 },
+  { r: 1, g: 1, b: 6 }, { r: 2, g: 3, b: 7 },
+  { r: 5, g: 1, b: 1 }, { r: 2, g: 6, b: 7 },
+  { r: 7, g: 1, b: 1 }, { r: 7, g: 3, b: 3 },
+  { r: 6, g: 6, b: 1 }, { r: 6, g: 6, b: 4 },
+  { r: 1, g: 4, b: 1 }, { r: 6, g: 2, b: 5 },
+  { r: 5, g: 5, b: 5 }, { r: 7, g: 7, b: 7 },
+].map(packRgb3);

@@ -50,11 +50,20 @@
               <span class="eyebrow">VDP MODE</span>
               <h2>Draw sprite</h2>
             </div>
+            <label class="size-picker">Target
+              <select id="sprite-target">
+                <option value="msx2" selected>MSX2 · V9938 Sprite Mode 2</option>
+                <option value="msx1">MSX1 · TMS9918A</option>
+              </select>
+            </label>
             <label class="size-picker">Sprite size
               <select id="sprite-size">
                 <option value="8">8 × 8</option>
                 <option value="16" selected>16 × 16</option>
               </select>
+            </label>
+            <label id="msx1-magnification-control" class="size-picker msx1-only" hidden>Magnification
+              <select id="sprite-magnification"><option value="1" selected>1×</option><option value="2">2×</option></select>
             </label>
             <label class="size-picker">Mode
               <select id="sprite-mode">
@@ -80,7 +89,7 @@
               <div id="overlay-row-guide" class="canvas-row-guide" aria-label="Sprite 1 row colors"></div>
             </div>
           </div>
-          <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span>The overlap preview shows the final CC color.</span></div>
+          <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span id="canvas-footer-hint">The overlap preview shows the final CC color.</span></div>
           <div class="frame-editor-controls">
             <div class="frame-editor-heading"><strong>Animations</strong><span class="hint">Each row is a separate loop · drag a frame to another row to copy it.</span></div>
             <div class="frame-actions"><button id="animation-new" class="secondary" type="button">New animation</button></div>
@@ -88,7 +97,7 @@
           </div>
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
-          <div class="panel-heading window-handle"><div><span class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Sprite &amp; animation preview</h2></div></div>
+          <div class="panel-heading window-handle"><div><span id="preview-target-label" class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Sprite &amp; animation preview</h2></div></div>
           <div class="preview-layout">
             <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
             <div class="preview-details">
@@ -118,7 +127,7 @@
             <span id="animation-frame-label" class="hint">Frame 1 / 1</span>
           </div>
         </section>
-        <section class="cc-map-panel panel movable-panel" data-panel="cc-map">
+        <section class="cc-map-panel panel movable-panel msx2-only" data-panel="cc-map">
           <div class="panel-heading window-handle">
             <div><span class="eyebrow">V9938 COLOR CODE OR</span><h2>CC color map</h2></div>
           </div>
@@ -128,26 +137,28 @@
         <aside class="controls-panel palette-panel panel movable-panel" data-panel="palette">
           <section class="palette-section">
             <div class="panel-heading window-handle">
-              <div><span class="eyebrow">V9938 PALETTE</span><h2>Color slots</h2></div>
-              <span class="palette-count">16 slots · 512 colors</span>
+              <div><span id="palette-target-label" class="eyebrow">V9938 PALETTE</span><h2>Color slots</h2></div>
+              <span id="palette-count" class="palette-count">16 slots · 512 colors</span>
             </div>
-            <p class="hint">The 4 bits are the sprite color code used by CC OR. Click a slot to edit its RGB color.</p>
+            <p id="palette-hint" class="hint">The 4 bits are the sprite color code used by CC OR. Click a slot to edit its RGB color.</p>
             <div id="palette-slots" class="palette-slots"></div>
           </section>
         </aside>
         <aside class="controls-panel scanline-panel panel movable-panel" data-panel="scanlines">
           <div class="panel-heading window-handle">
-            <div><span class="eyebrow">SPRITE DATA</span><h2>Scanline settings</h2></div>
+            <div><span id="sprite-data-label" class="eyebrow">SPRITE DATA</span><h2 id="sprite-data-title">Scanline settings</h2></div>
           </div>
-          <p class="hint">Set the palette slot per line for both sprites. CC belongs to Sprite 1; the last column shows the OR color code.</p>
-          <div class="table-scroll">
+          <p class="hint msx2-only">Set the palette slot per line for both sprites. CC belongs to Sprite 1; the last column shows the OR color code.</p>
+          <div id="msx1-color-settings" class="msx1-only" hidden></div>
+          <div class="table-scroll msx2-only">
             <table>
               <thead><tr><th>Y</th><th>Sprite 0</th><th>Sprite 1</th><th title="CC: Sprite 1 shares priority and ORs its color code with Sprite 0 on overlap">CC</th><th title="IC: this line does not conflict with other sprites">IC</th><th title="EC: shift 32 pixels left">EC</th><th>CC OR</th></tr></thead>
               <tbody id="scanline-rows"></tbody>
             </table>
           </div>
-          <div class="legend"><b>CC</b> overlap: OR color codes <span>·</span> <b>IC</b> ignore sprite conflicts <span>·</span> <b>EC</b> shift left 32 px</div>
-          <p class="warning">Palette data is included in every export format. Palette slot 0 is transparent for sprites by default.</p>
+          <div class="legend msx2-only"><b>CC</b> overlap: OR color codes <span>·</span> <b>IC</b> ignore sprite conflicts <span>·</span> <b>EC</b> shift left 32 px</div>
+          <p class="warning msx2-only">Palette data is included in every export format. Palette slot 0 is transparent for sprites by default.</p>
+          <p class="warning msx1-only">TMS9918A supports 32 sprites total and 4 on each scanline. Sprite size and magnification apply globally in the VDP.</p>
         </aside>
         <section class="export-panel panel movable-panel" data-panel="export">
         <div class="panel-heading window-handle export-heading">
@@ -189,17 +200,17 @@
         <section>
           <h3>Draw a sprite</h3>
           <ul>
-            <li>Choose <strong>8 × 8</strong> or <strong>16 × 16</strong> and select <strong>Single sprite</strong> or <strong>Sprite pair + CC</strong>.</li>
+            <li>Choose an MSX target, sprite size, and drawing mode. MSX1 uses the TMS9918A fixed palette and one color for each sprite; MSX2 Sprite Mode 2 adds per-scanline colors and CC, IC, and EC controls.</li>
             <li>Click or drag on the canvas to draw. Right-click or hold <kbd>Shift</kbd> while drawing to erase.</li>
-            <li>In pair mode, edit <strong>Sprite 0 · base</strong> and <strong>Sprite 1 · CC overlay</strong> separately. The other sprite appears as a translucent guide.</li>
-            <li>The overlap preview shows the combined result. Sprite 1's CC setting is per scanline and combines overlapping color codes with a bitwise OR.</li>
+            <li>In pair mode, edit both sprites separately. MSX2 can use Sprite 1 as a CC overlay. MSX1 uses independent colors and gives Sprite 0 priority wherever both sprites have a pixel. The inactive sprite appears translucently in its own color; while editing Sprite 1, a blue border marks its pixels underneath higher-priority Sprite 0 pixels.</li>
+            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 uses one fixed-palette color per sprite, Early Clock, and 1× or 2× magnification. Early Clock shifts the entire sprite 32 pixels left.</li>
           </ul>
         </section>
         <section>
           <h3>Choose colors</h3>
           <ul>
-            <li><strong>Color slots</strong> contains 16 sprite color codes, from P00 to P15. The four-bit code is what the VDP uses for each sprite scanline.</li>
-            <li>Click a slot to choose any of the 512 V9938 colors. Each RGB channel has 3 bits.</li>
+            <li><strong>Color slots</strong> shows the active target's 16 sprite colors. MSX1 colors are fixed; MSX2 slots use a four-bit code and can be edited.</li>
+            <li>In MSX2 mode, click a slot to choose any of the 512 V9938 colors. Each RGB channel has 3 bits.</li>
             <li>In <strong>Scanline settings</strong>, choose a palette slot for each sprite and line. Enable <strong>CC</strong> on Sprite 1 to apply overlap color mixing. <strong>IC</strong> inhibits sprite conflict detection; <strong>EC</strong> shifts that sprite 32 pixels left.</li>
             <li>The <strong>CC color map</strong> shows the result for every pair of color codes.</li>
           </ul>
@@ -237,7 +248,7 @@
           <dt>Original project</dt><dd><a href="https://github.com/Esshahn/spritemate" target="_blank" rel="noreferrer">github.com/Esshahn/spritemate</a></dd>
           <dt>Original website</dt><dd><a href="https://spritemate.com/" target="_blank" rel="noreferrer">spritemate.com</a></dd>
           <dt>License</dt><dd>MIT · Copyright © 2017 Ingo Hinterding</dd>
-          <dt>MSX SpriteMate</dt><dd>MSX2 V9938 Sprite Mode 2 editor with CC color mixing and animation tools.</dd>
+          <dt>MSX SpriteMate</dt><dd>MSX1 TMS9918A and MSX2 V9938 Sprite Mode 2 editor with animation tools.</dd>
         </dl>
         <p class="hint">The original attribution and license are included with this project.</p>
       </div>
