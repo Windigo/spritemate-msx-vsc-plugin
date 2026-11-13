@@ -99,8 +99,17 @@
           </div>
           <div class="animation-controls">
             <button id="animation-play" class="secondary" type="button" aria-pressed="false">Play</button>
-            <label for="frame-duration">Frame duration <output id="frame-duration-value">180 ms</output></label>
-            <input id="frame-duration" type="range" min="80" max="1000" step="20" value="180" />
+            <div class="duration-editor">
+              <div class="duration-editor-head">
+                <label for="frame-duration">Frame duration <output id="frame-duration-value">180 ms</output></label>
+                <label class="duration-toggle" for="duration-all-frames">
+                  <input id="duration-all-frames" type="checkbox" />
+                  <span class="duration-toggle-track" aria-hidden="true"></span>
+                  <span>Same for all frames</span>
+                </label>
+              </div>
+              <input id="frame-duration" type="range" min="80" max="1000" step="20" value="180" />
+            </div>
             <label for="animation-playback-mode">Playback</label>
             <select id="animation-playback-mode" aria-label="Playback mode">
               <option value="loop">Loop</option>

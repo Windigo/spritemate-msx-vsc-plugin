@@ -19,6 +19,7 @@ export interface Msx2Animation {
   name: string;
   frames: Msx2Sprite[][];
   frameDurationsMs: number[];
+  uniformFrameDuration?: boolean;
   playbackMode: "loop" | "pingpong";
   currentFrameIndex?: number;
 }

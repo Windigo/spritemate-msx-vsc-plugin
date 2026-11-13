@@ -39,6 +39,7 @@ const animationTracks = document.querySelector<HTMLDivElement>("#animation-track
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
 const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
 const frameDurationValue = document.querySelector<HTMLOutputElement>("#frame-duration-value")!;
+const uniformFrameDurationToggle = document.querySelector<HTMLInputElement>("#duration-all-frames")!;
 const onionSkin = document.querySelector<HTMLInputElement>("#onion-skin")!;
 const onionOpacity = document.querySelector<HTMLInputElement>("#onion-opacity")!;
 const onionOpacityValue = document.querySelector<HTMLOutputElement>("#onion-opacity-value")!;
@@ -104,7 +105,7 @@ let frameDurationsMs = [frameDurationMs];
 let playbackTimer: number | null = null;
 let isPlaying = false;
 let playbackMode: "loop" | "pingpong" = savedEditorSettings.playbackMode ?? "loop";
-let animations: Msx2Animation[] = [{ name: "Animation 1", frames: animationFrames, frameDurationsMs, playbackMode }];
+let animations: Msx2Animation[] = [{ name: "Animation 1", frames: animationFrames, frameDurationsMs, uniformFrameDuration: false, playbackMode }];
 let activeAnimationIndex = 0;
 let playbackDirection: 1 | -1 = 1;
 onionSkin.checked = savedEditorSettings.onionSkinEnabled ?? false;
@@ -129,7 +130,15 @@ function saveEditorSettings(): void {
 }
 
 const layoutKey = "spritemate-msx2-window-layout";
-const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel"));
+const panels = Array.from(document.querySelectorAll<HTMLElement>(".movable-panel")).filter((panel) => panel.dataset.panel !== "export");
+const codePanel = document.querySelector<HTMLElement>(".export-panel")!;
+const desktopWorkspaceKey = "spritemate-desktop-panel-tabs";
+type WindowLayoutEntry = { left: number; top: number; width: number; height: number; zIndex?: number; collapsed?: boolean };
+type WindowLayout = Record<string, WindowLayoutEntry>;
+function readWindowLayout(): WindowLayout {
+  try { return JSON.parse(localStorage.getItem(layoutKey) || "{}"); } catch { return {}; }
+}
+let movePanelToTab: ((panel: HTMLElement, tab: "work" | "panels") => void) | null = null;
 
 function updateCollapseButton(panel: HTMLElement, collapsed: boolean): void {
   const button = panel.querySelector<HTMLButtonElement>(".window-collapse");
@@ -140,41 +149,181 @@ function updateCollapseButton(panel: HTMLElement, collapsed: boolean): void {
   button.title = collapsed ? "Expand panel" : "Collapse panel";
 }
 
+function updateMoveButtonLabel(button: HTMLButtonElement, destination: string): void {
+  const arrow = document.createElement("span");
+  arrow.className = "move-tab-arrow";
+  arrow.textContent = "↑";
+  const label = document.createElement("span");
+  label.textContent = destination;
+  button.replaceChildren(arrow, label);
+}
+
 function saveWindowLayout(): void {
   if (window.innerWidth <= 960) return;
-  const layout = Object.fromEntries(panels.map((panel) => [panel.dataset.panel, {
-    left: panel.offsetLeft,
-    top: panel.offsetTop,
-    width: panel.offsetWidth,
-    height: panel.classList.contains("collapsed")
-      ? Number(panel.dataset.expandedHeight) || panel.offsetHeight
-      : panel.offsetHeight,
-    zIndex: Number(panel.style.zIndex) || 0,
-    collapsed: panel.classList.contains("collapsed"),
-  }]));
+  const layout = readWindowLayout();
+  const visiblePanels = panels.filter((panel) => panel.parentElement?.hidden !== true);
+  for (const panel of visiblePanels) {
+    layout[panel.dataset.panel || ""] = {
+      left: panel.offsetLeft,
+      top: panel.offsetTop,
+      width: panel.offsetWidth,
+      height: panel.classList.contains("collapsed")
+        ? Number(panel.dataset.expandedHeight) || panel.offsetHeight
+        : panel.offsetHeight,
+      zIndex: Number(panel.style.zIndex) || 0,
+      collapsed: panel.classList.contains("collapsed"),
+    };
+  }
   try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
 }
 
 function setupWindowLayout(): void {
-  for (const panel of panels) {
-    const handle = panel.querySelector<HTMLElement>(".window-handle");
-    if (!handle || handle.querySelector(".window-collapse")) continue;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "window-collapse";
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const collapsed = !panel.classList.contains("collapsed");
-      if (collapsed) panel.dataset.expandedHeight = String(panel.offsetHeight);
-      panel.classList.toggle("collapsed", collapsed);
-      updateCollapseButton(panel, collapsed);
+  const workWorkspace = panels[0]?.parentElement as HTMLElement;
+  if (workWorkspace) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "workspace-toolbar";
+    workWorkspace.closest("main")?.before(toolbar);
+
+    const settingsBar = document.createElement("section");
+    settingsBar.className = "workspace-settings-bar";
+    settingsBar.setAttribute("aria-label", "Editor settings");
+    const settingsTitle = document.createElement("strong");
+    settingsTitle.textContent = "Settings";
+    settingsBar.append(settingsTitle);
+    const editorPanel = panels.find((panel) => panel.dataset.panel === "editor");
+    editorPanel?.querySelectorAll<HTMLElement>(".panel-heading .size-picker").forEach((control) => settingsBar.append(control));
+    toolbar.append(settingsBar);
+
+    const tabsRow = document.createElement("div");
+    tabsRow.className = "workspace-tabs-row";
+    const tabBar = document.createElement("nav");
+    tabBar.className = "desktop-tab-bar";
+    tabBar.setAttribute("aria-label", "Editor workspaces");
+    const workTab = document.createElement("button");
+    const panelsTab = document.createElement("button");
+    const codeTab = document.createElement("button");
+    workTab.type = panelsTab.type = codeTab.type = "button";
+    workTab.className = "desktop-tab-button";
+    panelsTab.className = "desktop-tab-button";
+    codeTab.className = "desktop-tab-button";
+    workTab.textContent = "Work";
+    panelsTab.textContent = "Panels";
+    codeTab.textContent = "Code";
+    workTab.dataset.workspace = "work";
+    panelsTab.dataset.workspace = "panels";
+    codeTab.dataset.workspace = "code";
+    tabBar.append(workTab, panelsTab, codeTab);
+    tabsRow.append(tabBar);
+    const resetButton = document.querySelector<HTMLButtonElement>("#reset-layout");
+    if (resetButton) tabsRow.append(resetButton);
+    toolbar.append(tabsRow);
+    const panelsWorkspace = document.createElement("section");
+    panelsWorkspace.className = "workspace desktop-panels-workspace";
+    panelsWorkspace.setAttribute("aria-label", "Panels workspace");
+    const codeWorkspace = document.createElement("section");
+    codeWorkspace.className = "workspace desktop-code-workspace";
+    codeWorkspace.setAttribute("aria-label", "Code workspace");
+    workWorkspace.after(panelsWorkspace, codeWorkspace);
+    codePanel.classList.remove("movable-panel", "panel");
+    codePanel.querySelector(".window-handle")?.classList.remove("window-handle");
+    codeWorkspace.append(codePanel);
+    const workspaces = { work: workWorkspace, panels: panelsWorkspace, code: codeWorkspace };
+    let placement: Record<string, "work" | "panels" | "code"> = {};
+    try { placement = JSON.parse(localStorage.getItem(desktopWorkspaceKey) || "{}"); } catch { /* Use the work tab defaults. */ }
+    for (const panel of panels) {
+      const panelKey = panel.dataset.panel || "";
+      const tab = placement[panelKey] ?? (panelKey === "export" ? "code" : "work");
+      placement[panelKey] = tab;
+      workspaces[tab].append(panel);
+    }
+    delete placement.export;
+    localStorage.setItem(desktopWorkspaceKey, JSON.stringify(placement));
+    const tabs = { work: workTab, panels: panelsTab, code: codeTab };
+    const showTab = (tab: "work" | "panels" | "code") => {
+      Object.entries(workspaces).forEach(([name, workspace]) => {
+        workspace.hidden = name !== tab;
+        tabs[name as keyof typeof tabs].classList.toggle("active", name === tab);
+        tabs[name as keyof typeof tabs].setAttribute("aria-selected", String(name === tab));
+      });
+    };
+    movePanelToTab = (panel, tab) => {
+      const panelKey = panel.dataset.panel || "";
+      workspaces[tab].append(panel);
+      placement[panelKey] = tab;
+      localStorage.setItem(desktopWorkspaceKey, JSON.stringify(placement));
+      const moveButton = panel.querySelector<HTMLButtonElement>(".window-move-tab");
+      if (moveButton) {
+        const destination = tab === "work" ? "Panels" : "Work";
+        updateMoveButtonLabel(moveButton, destination);
+        moveButton.title = `Move panel to ${destination} tab`;
+        moveButton.setAttribute("aria-label", moveButton.title);
+      }
       saveWindowLayout();
+    };
+    workTab.addEventListener("click", () => showTab("work"));
+    panelsTab.addEventListener("click", () => showTab("panels"));
+    codeTab.addEventListener("click", () => showTab("code"));
+    showTab("work");
+    panels.forEach((panel) => {
+      const handle = panel.querySelector<HTMLElement>(".window-handle");
+      if (!handle) return;
+      let actions = handle.querySelector<HTMLDivElement>(".window-actions");
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.className = "window-actions";
+        handle.append(actions);
+      }
+      const moveButton = document.createElement("button");
+      moveButton.type = "button";
+      moveButton.className = "window-move-tab";
+      const updateMoveButton = () => {
+        const panelKey = panel.dataset.panel || "";
+        const current = placement[panelKey] ?? "work";
+        const destination = current === "work" ? "panels" : "work";
+        const destinationLabel = destination === "work" ? "Work" : destination === "code" ? "Code" : "Panels";
+        updateMoveButtonLabel(moveButton, destinationLabel);
+        moveButton.title = `Move panel to ${destinationLabel} tab`;
+        moveButton.setAttribute("aria-label", moveButton.title);
+      };
+      moveButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const panelKey = panel.dataset.panel || "";
+        const current = placement[panelKey] ?? "work";
+        const destinationTab = current === "work" ? "panels" : "work";
+        movePanelToTab?.(panel, destinationTab);
+      });
+      actions.append(moveButton);
+      updateMoveButton();
     });
-    handle.append(button);
   }
 
-  let saved: Record<string, { left: number; top: number; width: number; height: number; zIndex?: number; collapsed?: boolean }> = {};
-  try { saved = JSON.parse(localStorage.getItem(layoutKey) || "{}"); } catch { /* Use default positions. */ }
+  for (const panel of panels) {
+    const handle = panel.querySelector<HTMLElement>(".window-handle");
+    if (!handle) continue;
+    let actions = handle.querySelector<HTMLDivElement>(".window-actions");
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.className = "window-actions";
+      handle.append(actions);
+    }
+    if (!actions.querySelector(".window-collapse")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "window-collapse";
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const collapsed = !panel.classList.contains("collapsed");
+        if (collapsed) panel.dataset.expandedHeight = String(panel.offsetHeight);
+        panel.classList.toggle("collapsed", collapsed);
+        updateCollapseButton(panel, collapsed);
+        saveWindowLayout();
+      });
+      actions.append(button);
+    }
+    updateCollapseButton(panel, panel.classList.contains("collapsed"));
+  }
+
+  const saved = readWindowLayout();
   // Keep existing window positions when adding the preview window. Move only
   // the previous default export window so it does not cover the new preview.
   if (!saved.preview && saved.export?.left === 0 && saved.export.top === 762) {
@@ -237,11 +386,18 @@ function setupWindowLayout(): void {
         const maxTop = Math.max(0, panel.parentElement!.clientHeight - 45);
         panel.style.left = `${Math.max(0, Math.min(left + moveEvent.clientX - startX, maxLeft))}px`;
         panel.style.top = `${Math.max(0, Math.min(top + moveEvent.clientY - startY, maxTop))}px`;
+        const dropTab = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest<HTMLElement>(".desktop-tab-button[data-workspace]");
+        document.querySelectorAll(".desktop-tab-button.drop-target").forEach((tab) => tab.classList.remove("drop-target"));
+        dropTab?.classList.add("drop-target");
       };
-      const stop = () => {
+      const stop = (upEvent: PointerEvent) => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", stop);
         handle.removeEventListener("pointercancel", stop);
+        const dropTab = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest<HTMLElement>(".desktop-tab-button[data-workspace]");
+        document.querySelectorAll(".desktop-tab-button.drop-target").forEach((tab) => tab.classList.remove("drop-target"));
+        const destination = dropTab?.dataset.workspace;
+        if (destination === "work" || destination === "panels") movePanelToTab?.(panel, destination);
         saveWindowLayout();
       };
       handle.addEventListener("pointermove", move);
@@ -255,8 +411,9 @@ function setupWindowLayout(): void {
 }
 
 document.querySelector<HTMLButtonElement>("#reset-layout")!.addEventListener("click", () => {
-  try { localStorage.removeItem(layoutKey); } catch { /* Storage can be disabled. */ }
-  for (const panel of panels) {
+  const visiblePanels = panels.filter((panel) => panel.parentElement?.hidden !== true);
+  const layout = readWindowLayout();
+  for (const panel of visiblePanels) {
     panel.style.left = "";
     panel.style.top = "";
     panel.style.width = "";
@@ -265,7 +422,13 @@ document.querySelector<HTMLButtonElement>("#reset-layout")!.addEventListener("cl
     panel.classList.remove("collapsed");
     delete panel.dataset.expandedHeight;
     updateCollapseButton(panel, false);
+    delete layout[panel.dataset.panel || ""];
   }
+  if (codePanel.parentElement?.hidden !== true) {
+    codePanel.scrollTop = 0;
+    codePanel.querySelector("pre")?.scrollTo(0, 0);
+  }
+  try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* Storage can be disabled. */ }
 });
 setupWindowLayout();
 
@@ -516,6 +679,7 @@ function createAnimation(): void {
     name: `Animation ${animations.length + 1}`,
     frames: [sprites],
     frameDurationsMs: [frameDurationMs],
+    uniformFrameDuration: animations[activeAnimationIndex]?.uniformFrameDuration === true,
     playbackMode,
     currentFrameIndex: 0,
   };
@@ -544,6 +708,7 @@ function duplicateAnimation(animationIndex: number): void {
     name,
     frames: source.frames.map(cloneFrame),
     frameDurationsMs: [...source.frameDurationsMs],
+    uniformFrameDuration: source.uniformFrameDuration === true,
     playbackMode: source.playbackMode,
     currentFrameIndex: 0,
   };
@@ -566,7 +731,10 @@ function copyFrameToAnimation(sourceAnimationIndex: number, sourceFrameIndex: nu
   if (!sourceFrame) return;
   stopPlayback();
   targetAnimation.frames.push(cloneFrame(sourceFrame));
-  targetAnimation.frameDurationsMs.push(sourceAnimation.frameDurationsMs[sourceFrameIndex] ?? frameDurationMs);
+  const copiedDuration = targetAnimation.uniformFrameDuration
+    ? targetAnimation.frameDurationsMs[0] ?? frameDurationMs
+    : sourceAnimation.frameDurationsMs[sourceFrameIndex] ?? frameDurationMs;
+  targetAnimation.frameDurationsMs.push(copiedDuration);
   targetAnimation.currentFrameIndex = targetAnimation.frames.length - 1;
   activateAnimation(targetAnimationIndex, targetAnimation.currentFrameIndex);
 }
@@ -1164,6 +1332,7 @@ function render(): void {
   frameDurationMs = frameDurationsMs[currentFrameIndex] ?? frameDurationMs;
   frameDuration.value = String(frameDurationMs);
   frameDurationValue.textContent = `${frameDurationMs} ms`;
+  uniformFrameDurationToggle.checked = animations[activeAnimationIndex]?.uniformFrameDuration === true;
   document.body.classList.toggle("single-sprite", spriteMode === "single");
   previewHint.textContent = spriteMode === "single"
     ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
@@ -1227,13 +1396,27 @@ playbackModePicker.addEventListener("change", () => {
 document.querySelector<HTMLButtonElement>("#animation-new")!.addEventListener("click", createAnimation);
 frameDuration.addEventListener("input", () => {
   frameDurationMs = Number(frameDuration.value);
-  frameDurationsMs[currentFrameIndex] = frameDurationMs;
-  animations[activeAnimationIndex].frameDurationsMs = frameDurationsMs;
+  const animation = animations[activeAnimationIndex];
+  if (animation.uniformFrameDuration) frameDurationsMs.fill(frameDurationMs);
+  else frameDurationsMs[currentFrameIndex] = frameDurationMs;
+  animation.frameDurationsMs = frameDurationsMs;
   frameDurationValue.textContent = `${frameDurationMs} ms`;
   if (isPlaying) schedulePreviewAdvance();
   renderFrameStrip();
   renderPreview();
   renderOutput();
+  saveEditorSettings();
+});
+uniformFrameDurationToggle.addEventListener("change", () => {
+  const animation = animations[activeAnimationIndex];
+  animation.uniformFrameDuration = uniformFrameDurationToggle.checked;
+  if (animation.uniformFrameDuration) {
+    frameDurationMs = frameDurationsMs[currentFrameIndex] ?? frameDurationMs;
+    frameDurationsMs.fill(frameDurationMs);
+    animation.frameDurationsMs = frameDurationsMs;
+  }
+  if (isPlaying) schedulePreviewAdvance();
+  render();
   saveEditorSettings();
 });
 onionSkin.addEventListener("change", () => {
@@ -1282,7 +1465,7 @@ sizePicker.addEventListener("change", () => {
   saveEditorSettings();
 });
 
-document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
+function serializeProject(): string {
   const activeAnimation = animations[activeAnimationIndex];
   if (activeAnimation) {
     // Keep the active clip's canonical data in sync before taking the project
@@ -1297,21 +1480,29 @@ document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("cl
     name: animation.name,
     frames: animation.frames.map(cloneFrame),
     frameDurationsMs: [...animation.frameDurationsMs],
+    uniformFrameDuration: animation.uniformFrameDuration === true,
     playbackMode: animation.playbackMode,
     currentFrameIndex: animation.currentFrameIndex ?? 0,
   }));
-  project.spriteMode = spriteMode;
-  project.animations = savedAnimations;
-  project.currentAnimationIndex = activeAnimationIndex;
-  project.animationFrames = savedAnimations[activeAnimationIndex]?.frames ?? [];
-  project.frameDurationsMs = savedAnimations[activeAnimationIndex]?.frameDurationsMs ?? [];
-  project.frameDurationMs = frameDurationMs;
-  project.currentFrameIndex = currentFrameIndex;
-  project.playbackMode = playbackMode;
-  project.onionSkinEnabled = onionSkin.checked;
-  project.onionOpacity = onionOpacityValuePercent;
-  project.sprites = savedAnimations[activeAnimationIndex]?.frames[currentFrameIndex] ?? cloneFrame(project.sprites);
-  const projectText = JSON.stringify(project, null, 2);
+  const snapshot: Msx2Project = {
+    ...project,
+    spriteMode,
+    animations: savedAnimations,
+    currentAnimationIndex: activeAnimationIndex,
+    animationFrames: savedAnimations[activeAnimationIndex]?.frames ?? [],
+    frameDurationsMs: savedAnimations[activeAnimationIndex]?.frameDurationsMs ?? [],
+    frameDurationMs,
+    currentFrameIndex,
+    playbackMode,
+    onionSkinEnabled: onionSkin.checked,
+    onionOpacity: onionOpacityValuePercent,
+    sprites: savedAnimations[activeAnimationIndex]?.frames[currentFrameIndex] ?? cloneFrame(project.sprites),
+  };
+  return JSON.stringify(snapshot, null, 2);
+}
+
+document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
+  const projectText = serializeProject();
   if (customEditorMode && vscodeApi) vscodeApi.postMessage({ type: "save-project", text: projectText });
   else download("sprite-animation.msxsm", projectText, "application/json");
 });
@@ -1379,16 +1570,20 @@ function loadProjectText(projectText: string): void {
     const requestedFrame = Number.isInteger(source.currentFrameIndex)
       ? source.currentFrameIndex!
       : animationIndex === 0 && Number.isInteger(loaded.currentFrameIndex) ? loaded.currentFrameIndex! : 0;
+    const currentIndex = Math.max(0, Math.min(requestedFrame, frames.length - 1));
+    const uniformFrameDuration = source.uniformFrameDuration === true;
+    if (uniformFrameDuration) durations.fill(durations[currentIndex] ?? defaultDuration);
     return {
       name: typeof source.name === "string" && source.name.trim()
         ? source.name.trim().slice(0, 32)
         : `Animation ${animationIndex + 1}`,
       frames,
       frameDurationsMs: durations,
+      uniformFrameDuration,
       playbackMode: source.playbackMode === "loop" || source.playbackMode === "pingpong"
         ? source.playbackMode
         : loadedPlaybackMode,
-      currentFrameIndex: Math.max(0, Math.min(requestedFrame, frames.length - 1)),
+      currentFrameIndex: currentIndex,
     };
   });
   activeAnimationIndex = Math.max(0, Math.min(
