@@ -63,7 +63,7 @@
                 <option value="16" selected>16 × 16</option>
               </select>
             </label>
-            <label id="msx1-magnification-control" class="size-picker msx1-only" hidden>Magnification
+            <label id="msx1-magnification-control" class="size-picker msx1-only" hidden>Sprite magnification
               <select id="sprite-magnification"><option value="1" selected>1×</option><option value="2">2×</option></select>
             </label>
             <label class="size-picker">Mode
@@ -98,12 +98,10 @@
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
           <div class="panel-heading window-handle"><div><span id="preview-target-label" class="eyebrow">V9938 RESULT</span><h2 id="preview-title">Sprite &amp; animation preview</h2></div></div>
-          <div class="preview-toolbar">
-            <label class="size-picker preview-size-control">Preview size
-              <select id="preview-size"><option value="0.75">Compact</option><option value="1" selected>Normal</option><option value="1.5">Large</option></select>
-            </label>
+          <div id="preview-canvas-frame" class="preview-canvas-frame">
+            <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
+            <button id="preview-resize-handle" class="preview-resize-handle" type="button" role="slider" aria-label="Resize sprite preview" aria-valuemin="64" aria-valuemax="512" aria-valuenow="96" aria-orientation="horizontal" title="Drag to resize the preview"></button>
           </div>
-          <canvas id="overlap-preview" aria-label="Combined sprite preview"></canvas>
           <div class="animation-controls">
             <button id="animation-play" class="secondary" type="button" aria-pressed="false">Play</button>
             <div class="duration-editor">
@@ -202,8 +200,8 @@
             <li>Choose an 8 × 8 or 16 × 16 sprite and select <strong>Single sprite</strong> or <strong>Sprite pair</strong>. The pair mode uses two independent sprites on MSX1 and supports Sprite 1's CC overlay on MSX2.</li>
             <li>Click or drag on the canvas to draw. Right-click or hold <kbd>Shift</kbd> while drawing to erase.</li>
             <li>In pair mode, edit both sprites separately. MSX2 can use Sprite 1 as a CC overlay. MSX1 uses independent colors and gives Sprite 0 priority wherever both sprites have a pixel. The inactive sprite appears translucently in its own color; while editing Sprite 1, a blue border marks its pixels underneath higher-priority Sprite 0 pixels.</li>
-            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 has one fixed-palette color per sprite, Early Clock, and 1× or 2× hardware magnification. Early Clock shifts the entire sprite 32 pixels left; hardware magnification doubles its displayed size in both directions.</li>
-            <li><strong>Preview size</strong> changes only the sprite's on-screen size in the preview panel. It is available for both targets and does not change the hardware output.</li>
+            <li>MSX2 scanline settings include CC color mixing, IC conflict inhibit, and EC horizontal shift. MSX1 has one fixed-palette color per sprite, Early Clock, and 1× or 2× hardware magnification. Early Clock shifts the entire sprite 32 pixels left; hardware magnification doubles its size on the MSX1 screen.</li>
+            <li>Drag the preview's lower-right corner to resize it; the preview stays square. This changes only its on-screen size, is independent of hardware magnification, and does not change hardware output.</li>
           </ul>
         </section>
         <section>

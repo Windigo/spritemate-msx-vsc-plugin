@@ -19,7 +19,6 @@ const targetPicker = document.querySelector<HTMLSelectElement>("#sprite-target")
 const magnificationPicker = document.querySelector<HTMLSelectElement>("#sprite-magnification")!;
 const msx1ColorSettings = document.querySelector<HTMLDivElement>("#msx1-color-settings")!;
 const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
-const previewSizePicker = document.querySelector<HTMLSelectElement>("#preview-size")!;
 const editorVersion = document.querySelector<HTMLElement>("#editor-version")!;
 const customEditorMode = document.querySelector<HTMLMetaElement>('meta[name="msxsm-custom-editor"]')?.content === "true";
 const vscodeApi = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
@@ -34,6 +33,8 @@ const baseRowGuide = document.querySelector<HTMLDivElement>("#base-row-guide")!;
 const overlayRowGuide = document.querySelector<HTMLDivElement>("#overlay-row-guide")!;
 const previewCanvas = document.querySelector<HTMLCanvasElement>("#overlap-preview")!;
 const previewContext = previewCanvas.getContext("2d")!;
+const previewCanvasFrame = document.querySelector<HTMLDivElement>("#preview-canvas-frame")!;
+const previewResizeHandle = document.querySelector<HTMLButtonElement>("#preview-resize-handle")!;
 const animationTracks = document.querySelector<HTMLDivElement>("#animation-tracks")!;
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
 const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
@@ -73,7 +74,7 @@ let drawing = false;
 type EditorSettings = {
   target: "msx1" | "msx2";
   magnification: 1 | 2;
-  previewSize: 0.75 | 1 | 1.5;
+  previewCanvasSize: number;
   uniformFrameDuration: boolean;
   spriteSize: SpriteSize;
   spriteMode: "single" | "pair";
@@ -90,7 +91,7 @@ function readEditorSettings(): Partial<EditorSettings> {
     return {
       ...(value.target === "msx1" || value.target === "msx2" ? { target: value.target } : {}),
       ...(value.magnification === 1 || value.magnification === 2 ? { magnification: value.magnification } : {}),
-      ...(value.previewSize === 0.75 || value.previewSize === 1 || value.previewSize === 1.5 ? { previewSize: value.previewSize } : {}),
+      ...(Number.isFinite(value.previewCanvasSize) ? { previewCanvasSize: Math.max(64, Math.min(512, Math.round(value.previewCanvasSize! / 8) * 8)) } : {}),
       ...(typeof value.uniformFrameDuration === "boolean" ? { uniformFrameDuration: value.uniformFrameDuration } : {}),
       ...(value.spriteSize === 8 || value.spriteSize === 16 ? { spriteSize: value.spriteSize } : {}),
       ...(value.spriteMode === "single" || value.spriteMode === "pair" ? { spriteMode: value.spriteMode } : {}),
@@ -104,12 +105,14 @@ function readEditorSettings(): Partial<EditorSettings> {
 const savedEditorSettings = readEditorSettings();
 project = createMsx2Project(savedEditorSettings.spriteSize ?? 16);
 let msxTarget: "msx1" | "msx2" = savedEditorSettings.target ?? "msx2";
-let previewSize: 0.75 | 1 | 1.5 = savedEditorSettings.previewSize ?? 1;
+let previewCanvasSize = savedEditorSettings.previewCanvasSize ?? 96;
+previewCanvasFrame.style.width = `${previewCanvasSize}px`;
+previewCanvasFrame.style.height = `${previewCanvasSize}px`;
+previewResizeHandle.setAttribute("aria-valuenow", String(previewCanvasSize));
 let msx2Palette = [...project.palette];
 project.target = msxTarget === "msx1" ? "msx1-tms9918a" : "msx2-v9938-sm2";
 project.magnification = savedEditorSettings.magnification ?? 1;
 magnificationPicker.value = String(project.magnification);
-previewSizePicker.value = String(previewSize);
 project.palette = msxTarget === "msx1" ? [...MSX1_PALETTE] : [...DEFAULT_PALETTE];
 targetPicker.value = msxTarget;
 sizePicker.value = String(project.spriteSize);
@@ -138,7 +141,7 @@ function saveEditorSettings(): void {
   const settings: EditorSettings = {
     target: msxTarget,
     magnification: project.magnification ?? 1,
-    previewSize,
+    previewCanvasSize,
     uniformFrameDuration: animations[activeAnimationIndex]?.uniformFrameDuration === true,
     spriteSize: project.spriteSize,
     spriteMode,
@@ -1158,9 +1161,7 @@ function renderPreview(): void {
   const previewSprites = animationFrames[isPlaying ? previewFrameIndex : currentFrameIndex] || project.sprites;
   const size = project.spriteSize;
   const scale = 8;
-  const magnification = msxTarget === "msx1" ? project.magnification ?? 1 : 1;
-  const displayScale = scale * magnification;
-  previewCanvas.style.setProperty("--preview-size", `${size * displayScale * previewSize}px`);
+  const displayScale = scale;
   previewCanvas.width = size * displayScale;
   previewCanvas.height = size * displayScale;
   for (let y = 0; y < size; y++) {
@@ -1631,13 +1632,44 @@ layerButtons.forEach((button, index) => button.addEventListener("click", () => {
 targetPicker.addEventListener("change", () => setTarget(targetPicker.value as "msx1" | "msx2"));
 magnificationPicker.addEventListener("change", () => {
   project.magnification = Number(magnificationPicker.value) === 2 ? 2 : 1;
-  renderPreview();
   renderOutput();
   saveEditorSettings();
 });
-previewSizePicker.addEventListener("change", () => {
-  previewSize = Number(previewSizePicker.value) === 0.75 ? 0.75 : Number(previewSizePicker.value) === 1.5 ? 1.5 : 1;
-  renderPreview();
+const setPreviewCanvasSize = (size: number) => {
+  previewCanvasSize = Math.max(64, Math.min(512, Math.round(size / 8) * 8));
+  previewCanvasFrame.style.width = `${previewCanvasSize}px`;
+  previewCanvasFrame.style.height = `${previewCanvasSize}px`;
+  previewResizeHandle.setAttribute("aria-valuenow", String(previewCanvasSize));
+};
+previewResizeHandle.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const startSize = previewCanvasFrame.offsetWidth;
+  previewResizeHandle.setPointerCapture(event.pointerId);
+  const move = (moveEvent: PointerEvent) => {
+    const change = Math.max(moveEvent.clientX - startX, moveEvent.clientY - startY);
+    setPreviewCanvasSize(startSize + change);
+  };
+  const stop = () => {
+    previewResizeHandle.removeEventListener("pointermove", move);
+    previewResizeHandle.removeEventListener("pointerup", stop);
+    previewResizeHandle.removeEventListener("pointercancel", stop);
+    saveEditorSettings();
+  };
+  previewResizeHandle.addEventListener("pointermove", move);
+  previewResizeHandle.addEventListener("pointerup", stop);
+  previewResizeHandle.addEventListener("pointercancel", stop);
+});
+previewResizeHandle.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") setPreviewCanvasSize(previewCanvasSize + 8);
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") setPreviewCanvasSize(previewCanvasSize - 8);
+  else if (event.key === "Home") setPreviewCanvasSize(96);
+  else if (event.key === "End") setPreviewCanvasSize(512);
+  else return;
+  event.preventDefault();
   saveEditorSettings();
 });
 modePicker.addEventListener("change", () => setSpriteMode(modePicker.value as "single" | "pair"));
