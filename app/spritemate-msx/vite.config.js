@@ -42,7 +42,10 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     rollupOptions: {
-      input: path.resolve(__dirname, 'msx.html'),
+      input: {
+        index: path.resolve(__dirname, 'index.html'),
+        msx: path.resolve(__dirname, 'msx.html'),
+      },
     },
   },
   base: './', // Make sure this is correct for production

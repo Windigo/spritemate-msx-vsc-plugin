@@ -45,6 +45,33 @@ Install the extension and run **MSX SpriteMate: Open Sprite Editor** from the Co
 
 This builds the standalone editor and packages it as a `.vsix` file. The root `package.json` is the source of truth for the extension and editor version.
 
+## Run publicly from macOS
+
+The public editor runs as a static site on this Mac:
+
+- Public URL: <https://msxspritemate.mennohoman.nl>
+- Local site: `~/Sites/msx-spritemate`
+- Local HTTP server: `127.0.0.1:8091`
+- Cloudflare Tunnel hostname route: `msxspritemate.mennohoman.nl` → `localhost:8091`
+
+### Publish an update
+
+From this repository, run:
+
+```sh
+./deploy-mac.sh
+```
+
+The script synchronizes the editor and extension versions, builds the standalone app, copies the production files to `~/Sites/msx-spritemate`, and installs or restarts the `nl.mennohoman.msxspritemate` LaunchAgent. Open the public URL after it finishes to confirm the update.
+
+### Start after restarting the Mac
+
+The editor's LaunchAgent has `RunAtLoad` and `KeepAlive` enabled. macOS starts the local web server automatically when the `windigo` account logs in and relaunches it if it stops. Cloudflare Tunnel is installed as the system LaunchDaemon `com.cloudflare.cloudflared`, also configured to run at system startup. After a Mac restart, log into the `windigo` account; the public site should then become available without running the deployment script again.
+
+The Mac must remain awake and connected to the internet for the public site to stay reachable. The local server log files are `~/Library/Logs/msxspritemate-http.log` and `~/Library/Logs/msxspritemate-http-error.log`; Cloudflare Tunnel logs are `/Library/Logs/com.cloudflare.cloudflared.out.log` and `/Library/Logs/com.cloudflare.cloudflared.err.log`.
+
+The public editor is static; `.msxsm` projects stay in the user's browser or local files and are not uploaded to a server.
+
 ## Credits
 
 MSX SpriteMate is an independent MSX-focused editor based on Spritemate by Ingo Hinterding (awsm). The original project attribution and MIT license are retained in `app/spritemate-msx/README.upstream.md` and `app/spritemate-msx/LICENSE`.
