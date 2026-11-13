@@ -1,25 +1,31 @@
 import { colorIndexToCss, colorIndexToHex, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx2AnimationC } from "./exportC";
+import { exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
   normalizeMsx2Sprite,
+  type Msx2Animation,
   type Msx2Project,
 } from "./project";
 import type { SpriteSize } from "./hardware";
 
 declare const __SPRITEMATE_VERSION__: string;
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
 const canvas = document.querySelector<HTMLCanvasElement>("#sprite-canvas")!;
 const context = canvas.getContext("2d")!;
 const sizePicker = document.querySelector<HTMLSelectElement>("#sprite-size")!;
 const modePicker = document.querySelector<HTMLSelectElement>("#sprite-mode")!;
 const editorVersion = document.querySelector<HTMLElement>("#editor-version")!;
+const customEditorMode = document.querySelector<HTMLMetaElement>('meta[name="msxsm-custom-editor"]')?.content === "true";
+const vscodeApi = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
 const rowsElement = document.querySelector<HTMLTableSectionElement>("#scanline-rows")!;
 const paletteSlotsElement = document.querySelector<HTMLDivElement>("#palette-slots")!;
 const ccMapElement = document.querySelector<HTMLDivElement>("#cc-map-grid")!;
 const output = document.querySelector<HTMLElement>("#export-output code")!;
-const status = document.querySelector<HTMLElement>("#export-status")!;
+const exportFormat = document.querySelector<HTMLSelectElement>("#export-format")!;
+const exportLanguage = document.querySelector<HTMLElement>("#export-language")!;
+const exportSelectedButton = document.querySelector<HTMLButtonElement>("#export-selected")!;
 const canvasStatus = document.querySelector<HTMLElement>("#canvas-status")!;
 const baseRowGuide = document.querySelector<HTMLDivElement>("#base-row-guide")!;
 const overlayRowGuide = document.querySelector<HTMLDivElement>("#overlay-row-guide")!;
@@ -29,7 +35,7 @@ const overlapFormula = document.querySelector<HTMLElement>("#overlap-formula")!;
 const overlapSwatch = document.querySelector<HTMLElement>("#overlap-swatch")!;
 const overlapColor = document.querySelector<HTMLElement>("#overlap-color")!;
 const previewHint = document.querySelector<HTMLElement>("#preview-hint")!;
-const frameStrip = document.querySelector<HTMLDivElement>("#frame-strip")!;
+const animationTracks = document.querySelector<HTMLDivElement>("#animation-tracks")!;
 const playButton = document.querySelector<HTMLButtonElement>("#animation-play")!;
 const frameDuration = document.querySelector<HTMLInputElement>("#frame-duration")!;
 const frameDurationValue = document.querySelector<HTMLOutputElement>("#frame-duration-value")!;
@@ -39,6 +45,7 @@ const onionOpacityValue = document.querySelector<HTMLOutputElement>("#onion-opac
 const animationFrameLabel = document.querySelector<HTMLElement>("#animation-frame-label")!;
 const playbackModePicker = document.querySelector<HTMLSelectElement>("#animation-playback-mode")!;
 const infoDialog = document.querySelector<HTMLDialogElement>("#info-dialog")!;
+const helpDialog = document.querySelector<HTMLDialogElement>("#help-dialog")!;
 const layerButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".layer-button"));
 const picker = document.querySelector<HTMLDialogElement>("#palette-picker")!;
 const rgbCube = document.querySelector<HTMLDivElement>("#rgb-cube")!;
@@ -57,7 +64,7 @@ const channelOutputs = {
 };
 let project: Msx2Project;
 editorVersion.textContent = `v${__SPRITEMATE_VERSION__}`;
-document.title = `MSX Sprite Editor v${__SPRITEMATE_VERSION__}`;
+document.title = `MSX SpriteMate v${__SPRITEMATE_VERSION__}`;
 let selectedRow = 0;
 let selectedPaletteSlot = 1;
 let selectedLayer = 0;
@@ -93,8 +100,12 @@ let animationFrames = [project.sprites];
 let currentFrameIndex = 0;
 let previewFrameIndex = 0;
 let frameDurationMs = savedEditorSettings.frameDurationMs ?? 180;
+let frameDurationsMs = [frameDurationMs];
 let playbackTimer: number | null = null;
+let isPlaying = false;
 let playbackMode: "loop" | "pingpong" = savedEditorSettings.playbackMode ?? "loop";
+let animations: Msx2Animation[] = [{ name: "Animation 1", frames: animationFrames, frameDurationsMs, playbackMode }];
+let activeAnimationIndex = 0;
 let playbackDirection: 1 | -1 = 1;
 onionSkin.checked = savedEditorSettings.onionSkinEnabled ?? false;
 onionOpacity.value = String(savedEditorSettings.onionOpacity ?? 25);
@@ -271,8 +282,9 @@ function cloneFrame(frame: typeof project.sprites): typeof project.sprites {
 }
 
 function stopPlayback(): void {
-  if (playbackTimer !== null) window.clearInterval(playbackTimer);
+  if (playbackTimer !== null) window.clearTimeout(playbackTimer);
   playbackTimer = null;
+  isPlaying = false;
   previewFrameIndex = currentFrameIndex;
   playbackDirection = 1;
   playButton.textContent = "Play";
@@ -280,100 +292,397 @@ function stopPlayback(): void {
 }
 
 function updateAnimationFrameLabel(): void {
-  const previewIndex = playbackTimer === null ? currentFrameIndex : previewFrameIndex;
-  animationFrameLabel.textContent = playbackTimer === null
-    ? `Editing frame ${currentFrameIndex + 1} / ${animationFrames.length} · ${frameDurationMs} ms`
-    : `Editing frame ${currentFrameIndex + 1} · Preview ${previewIndex + 1} / ${animationFrames.length} · ${frameDurationMs} ms · Playing`;
+  const animationName = animations[activeAnimationIndex]?.name ?? "Animation";
+  const editingDuration = frameDurationsMs[currentFrameIndex] ?? frameDurationMs;
+  animationFrameLabel.textContent = isPlaying
+    ? `${animationName} · Editing ${currentFrameIndex + 1} (${editingDuration} ms) · Preview ${previewFrameIndex + 1}/${animationFrames.length} (${frameDurationsMs[previewFrameIndex] ?? frameDurationMs} ms) · Playing`
+    : `${animationName} · Editing frame ${currentFrameIndex + 1}/${animationFrames.length} · ${editingDuration} ms`;
 }
 
+const frameDragType = "application/x-spritemate-msx-frame";
+
 function renderFrameStrip(): void {
-  if (frameStrip.childElementCount !== animationFrames.length) {
-    frameStrip.replaceChildren();
-    animationFrames.forEach((_, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "frame-button";
-      button.textContent = String(index + 1).padStart(2, "0");
-      button.addEventListener("click", () => {
-        currentFrameIndex = index;
-        project.sprites = animationFrames[index];
-        // Keep playback running. The selected frame is edited on the main
-        // canvas while the preview keeps following its independent playhead.
-        render();
+  const needsRebuild = animationTracks.childElementCount !== animations.length
+    || animations.some((animation, index) =>
+      animationTracks.children[index]?.querySelectorAll(".frame-button").length !== animation.frames.length);
+
+  if (needsRebuild) {
+    animationTracks.replaceChildren();
+    animations.forEach((animation, animationIndex) => {
+      const track = document.createElement("section");
+      track.className = "animation-track";
+      track.dataset.animationIndex = String(animationIndex);
+      const heading = document.createElement("div");
+      heading.className = "animation-track-heading";
+      heading.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement).closest("input, button")) return;
+        activateAnimation(animationIndex);
       });
-      frameStrip.append(button);
+
+      const name = document.createElement("input");
+      name.className = "animation-name";
+      name.type = "text";
+      name.maxLength = 32;
+      name.setAttribute("aria-label", `Animation ${animationIndex + 1} name`);
+      name.addEventListener("change", () => {
+        animation.name = name.value.trim().slice(0, 32) || `Animation ${animationIndex + 1}`;
+        name.value = animation.name;
+        updateAnimationFrameLabel();
+        renderOutput();
+      });
+
+      const animationActions = document.createElement("div");
+      animationActions.className = "animation-management-actions";
+      const frameActions = document.createElement("div");
+      frameActions.className = "animation-frame-actions";
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.dataset.action = "add-frame";
+      addButton.className = "secondary";
+      addButton.textContent = "+ Frame";
+      addButton.title = `Add a blank frame to ${animation.name}`;
+      addButton.addEventListener("click", () => {
+        activateAnimation(animationIndex);
+        addAnimationFrame(true);
+      });
+      const duplicateButton = document.createElement("button");
+      duplicateButton.type = "button";
+      duplicateButton.dataset.action = "duplicate-frame";
+      duplicateButton.className = "secondary";
+      duplicateButton.textContent = "Duplicate frame";
+      duplicateButton.title = `Duplicate the selected frame in ${animation.name}`;
+      duplicateButton.addEventListener("click", () => {
+        activateAnimation(animationIndex);
+        addAnimationFrame(false);
+      });
+      const duplicateAnimationButton = document.createElement("button");
+      duplicateAnimationButton.type = "button";
+      duplicateAnimationButton.dataset.action = "duplicate-animation";
+      duplicateAnimationButton.className = "secondary";
+      duplicateAnimationButton.textContent = "Duplicate";
+      duplicateAnimationButton.title = `Duplicate ${animation.name}, including all frames and timing`;
+      duplicateAnimationButton.addEventListener("click", () => duplicateAnimation(animationIndex));
+      const moveLeftButton = document.createElement("button");
+      moveLeftButton.type = "button";
+      moveLeftButton.dataset.action = "move-left";
+      moveLeftButton.className = "secondary";
+      moveLeftButton.textContent = "←";
+      moveLeftButton.setAttribute("aria-label", "Move selected frame left");
+      moveLeftButton.title = "Move selected frame left";
+      moveLeftButton.addEventListener("click", () => {
+        activateAnimation(animationIndex);
+        moveAnimationFrame(-1);
+      });
+      const moveRightButton = document.createElement("button");
+      moveRightButton.type = "button";
+      moveRightButton.dataset.action = "move-right";
+      moveRightButton.className = "secondary";
+      moveRightButton.textContent = "→";
+      moveRightButton.setAttribute("aria-label", "Move selected frame right");
+      moveRightButton.title = "Move selected frame right";
+      moveRightButton.addEventListener("click", () => {
+        activateAnimation(animationIndex);
+        moveAnimationFrame(1);
+      });
+      const deleteFrameButton = document.createElement("button");
+      deleteFrameButton.type = "button";
+      deleteFrameButton.dataset.action = "delete-frame";
+      deleteFrameButton.className = "secondary";
+      deleteFrameButton.textContent = "Delete frame";
+      deleteFrameButton.addEventListener("click", () => {
+        activateAnimation(animationIndex);
+        deleteAnimationFrame();
+      });
+      const deleteAnimationButton = document.createElement("button");
+      deleteAnimationButton.type = "button";
+      deleteAnimationButton.dataset.action = "delete-animation";
+      deleteAnimationButton.className = "secondary animation-remove";
+      deleteAnimationButton.textContent = "Delete";
+      deleteAnimationButton.setAttribute("aria-label", `Delete ${animation.name} animation`);
+      deleteAnimationButton.title = `Delete ${animation.name} animation`;
+      deleteAnimationButton.addEventListener("click", () => deleteAnimation(animationIndex));
+      animationActions.append(duplicateAnimationButton, deleteAnimationButton);
+      frameActions.append(addButton, duplicateButton, moveLeftButton, moveRightButton, deleteFrameButton);
+      heading.append(name, animationActions);
+
+      const strip = document.createElement("div");
+      strip.className = "frame-strip";
+      strip.setAttribute("role", "group");
+      strip.setAttribute("aria-label", `${animation.name} frames`);
+      animation.frames.forEach((_, frameIndex) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "frame-button";
+        button.draggable = true;
+        button.addEventListener("click", () => activateAnimation(animationIndex, frameIndex));
+        button.addEventListener("dragstart", (event) => {
+          if (!event.dataTransfer) return;
+          event.dataTransfer.setData(frameDragType, JSON.stringify({ animationIndex, frameIndex }));
+          event.dataTransfer.effectAllowed = "copy";
+          track.classList.add("drag-source");
+        });
+        button.addEventListener("dragend", () => {
+          track.classList.remove("drag-source", "drop-target");
+          animationTracks.querySelectorAll(".drop-target").forEach((target) => target.classList.remove("drop-target"));
+        });
+        strip.append(button);
+      });
+      track.addEventListener("dragover", (event) => {
+        if (!event.dataTransfer?.types.includes(frameDragType) || animation.frames.length >= 64) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        track.classList.add("drop-target");
+      });
+      track.addEventListener("dragleave", (event) => {
+        if (!track.contains(event.relatedTarget as Node | null)) track.classList.remove("drop-target");
+      });
+      track.addEventListener("drop", (event) => {
+        event.preventDefault();
+        track.classList.remove("drop-target");
+        const transfer = event.dataTransfer?.getData(frameDragType);
+        if (!transfer) return;
+        try {
+          const source = JSON.parse(transfer) as { animationIndex: number; frameIndex: number };
+          copyFrameToAnimation(source.animationIndex, source.frameIndex, animationIndex);
+        } catch {
+          return;
+        }
+      });
+      track.append(heading, frameActions, strip);
+      animationTracks.append(track);
     });
   }
 
-  Array.from(frameStrip.querySelectorAll<HTMLButtonElement>(".frame-button")).forEach((button, index) => {
-    const isEditing = index === currentFrameIndex;
-    const isPlaying = playbackTimer !== null && index === previewFrameIndex;
-    button.classList.toggle("editing", isEditing);
-    button.classList.toggle("playing", isPlaying);
-    button.setAttribute("aria-pressed", String(isEditing));
-    button.setAttribute("aria-label", `Frame ${index + 1}${isEditing ? ", selected for editing" : ""}${isPlaying ? ", shown in preview" : ""}`);
-    button.title = `Select frame ${index + 1} to edit${isPlaying ? " · currently in preview" : ""}`;
+  Array.from(animationTracks.children).forEach((trackElement, animationIndex) => {
+    const animation = animations[animationIndex];
+    const track = trackElement as HTMLElement;
+    const isActiveAnimation = animationIndex === activeAnimationIndex;
+    track.classList.toggle("active", isActiveAnimation);
+    const name = track.querySelector<HTMLInputElement>(".animation-name")!;
+    if (document.activeElement !== name) name.value = animation.name;
+    const action = (name: string) => track.querySelector<HTMLButtonElement>(`[data-action="${name}"]`)!;
+    action("add-frame").disabled = animation.frames.length >= 64;
+    action("duplicate-frame").disabled = animation.frames.length >= 64;
+    action("duplicate-animation").disabled = animations.length >= 16;
+    action("delete-frame").disabled = animation.frames.length < 2;
+    action("delete-animation").disabled = animations.length < 2;
+    action("move-left").disabled = !isActiveAnimation || currentFrameIndex === 0;
+    action("move-right").disabled = !isActiveAnimation || currentFrameIndex === animation.frames.length - 1;
+    track.classList.toggle("drop-full", animation.frames.length >= 64);
+    const strip = track.querySelector<HTMLDivElement>(".frame-strip")!;
+    strip.setAttribute("aria-label", `${animation.name} frames`);
+    Array.from(strip.querySelectorAll<HTMLButtonElement>(".frame-button")).forEach((button, frameIndex) => {
+      const isEditing = isActiveAnimation && frameIndex === currentFrameIndex;
+      const isPreviewing = isPlaying && isActiveAnimation && frameIndex === previewFrameIndex;
+      const duration = animation.frameDurationsMs[frameIndex];
+      button.textContent = String(frameIndex + 1).padStart(2, "0");
+      button.classList.toggle("editing", isEditing);
+      button.classList.toggle("playing", isPreviewing);
+      button.setAttribute("aria-pressed", String(isEditing));
+      button.setAttribute("aria-label", `${animation.name}, frame ${frameIndex + 1}, ${duration} milliseconds${isEditing ? ", selected for editing" : ""}${isPreviewing ? ", shown in preview" : ""}`);
+      button.title = `${animation.name} · frame ${frameIndex + 1} · ${duration} ms${isPreviewing ? " · currently in preview" : ""}`;
+    });
   });
 
   updateAnimationFrameLabel();
-  playButton.disabled = animationFrames.length < 2;
-  document.querySelector<HTMLButtonElement>("#frame-delete")!.disabled = animationFrames.length < 2;
-  document.querySelector<HTMLButtonElement>("#frame-new")!.disabled = animationFrames.length >= 64;
-  document.querySelector<HTMLButtonElement>("#frame-duplicate")!.disabled = animationFrames.length >= 64;
-  document.querySelector<HTMLButtonElement>("#frame-move-left")!.disabled = currentFrameIndex === 0;
-  document.querySelector<HTMLButtonElement>("#frame-move-right")!.disabled = currentFrameIndex === animationFrames.length - 1;
+  playButton.disabled = animationFrames.length < 2 && !isPlaying;
+  document.querySelector<HTMLButtonElement>("#animation-new")!.disabled = animations.length >= 16;
+}
+
+function activateAnimation(animationIndex: number, frameIndex?: number): void {
+  const animation = animations[animationIndex];
+  if (!animation) return;
+  if (animationIndex !== activeAnimationIndex) {
+    stopPlayback();
+    activeAnimationIndex = animationIndex;
+    animationFrames = animation.frames;
+    frameDurationsMs = animation.frameDurationsMs;
+    playbackMode = animation.playbackMode;
+    playbackModePicker.value = playbackMode;
+    playbackDirection = 1;
+  }
+  currentFrameIndex = frameIndex ?? animation.currentFrameIndex ?? 0;
+  currentFrameIndex = Math.max(0, Math.min(currentFrameIndex, animation.frames.length - 1));
+  animation.currentFrameIndex = currentFrameIndex;
+  project.sprites = animationFrames[currentFrameIndex];
+  render();
+}
+
+function createAnimation(): void {
+  if (animations.length >= 16) return;
+  stopPlayback();
+  const sprites = createMsx2Project(project.spriteSize).sprites;
+  const animation: Msx2Animation = {
+    name: `Animation ${animations.length + 1}`,
+    frames: [sprites],
+    frameDurationsMs: [frameDurationMs],
+    playbackMode,
+    currentFrameIndex: 0,
+  };
+  animations.push(animation);
+  activeAnimationIndex = animations.length - 1;
+  animationFrames = animation.frames;
+  frameDurationsMs = animation.frameDurationsMs;
+  currentFrameIndex = 0;
+  project.sprites = sprites;
+  render();
+}
+
+function duplicateAnimation(animationIndex: number): void {
+  if (animations.length >= 16) return;
+  const source = animations[animationIndex];
+  if (!source) return;
+  stopPlayback();
+  const baseName = `${source.name} copy`.slice(0, 32);
+  let name = baseName;
+  let suffix = 2;
+  while (animations.some((animation) => animation.name === name)) {
+    const ending = ` ${suffix++}`;
+    name = `${baseName.slice(0, 32 - ending.length)}${ending}`;
+  }
+  const duplicate: Msx2Animation = {
+    name,
+    frames: source.frames.map(cloneFrame),
+    frameDurationsMs: [...source.frameDurationsMs],
+    playbackMode: source.playbackMode,
+    currentFrameIndex: 0,
+  };
+  animations.splice(animationIndex + 1, 0, duplicate);
+  activeAnimationIndex = animationIndex + 1;
+  animationFrames = duplicate.frames;
+  frameDurationsMs = duplicate.frameDurationsMs;
+  playbackMode = duplicate.playbackMode;
+  playbackModePicker.value = playbackMode;
+  currentFrameIndex = 0;
+  project.sprites = duplicate.frames[0];
+  render();
+}
+
+function copyFrameToAnimation(sourceAnimationIndex: number, sourceFrameIndex: number, targetAnimationIndex: number): void {
+  const sourceAnimation = animations[sourceAnimationIndex];
+  const targetAnimation = animations[targetAnimationIndex];
+  if (!sourceAnimation || !targetAnimation || sourceAnimationIndex === targetAnimationIndex || targetAnimation.frames.length >= 64) return;
+  const sourceFrame = sourceAnimation.frames[sourceFrameIndex];
+  if (!sourceFrame) return;
+  stopPlayback();
+  targetAnimation.frames.push(cloneFrame(sourceFrame));
+  targetAnimation.frameDurationsMs.push(sourceAnimation.frameDurationsMs[sourceFrameIndex] ?? frameDurationMs);
+  targetAnimation.currentFrameIndex = targetAnimation.frames.length - 1;
+  activateAnimation(targetAnimationIndex, targetAnimation.currentFrameIndex);
+}
+
+function deleteAnimation(animationIndex: number): void {
+  if (animations.length < 2 || !animations[animationIndex]) return;
+  stopPlayback();
+  animations.splice(animationIndex, 1);
+  if (animationIndex < activeAnimationIndex) activeAnimationIndex--;
+  else if (animationIndex === activeAnimationIndex) activeAnimationIndex = Math.min(animationIndex, animations.length - 1);
+  const active = animations[activeAnimationIndex];
+  animationFrames = active.frames;
+  frameDurationsMs = active.frameDurationsMs;
+  playbackMode = active.playbackMode;
+  playbackModePicker.value = playbackMode;
+  currentFrameIndex = Math.max(0, Math.min(active.currentFrameIndex ?? 0, active.frames.length - 1));
+  project.sprites = active.frames[currentFrameIndex];
+  render();
 }
 
 function addAnimationFrame(blank: boolean): void {
   if (animationFrames.length >= 64) return;
-  stopPlayback();
+  const wasPlaying = isPlaying;
+  const insertIndex = currentFrameIndex + 1;
   const sprites = blank ? createMsx2Project(project.spriteSize).sprites : cloneFrame(project.sprites);
-  animationFrames.splice(currentFrameIndex + 1, 0, sprites);
-  currentFrameIndex++;
+  animationFrames.splice(insertIndex, 0, sprites);
+  frameDurationsMs.splice(insertIndex, 0, frameDurationMs);
+  if (wasPlaying && previewFrameIndex >= insertIndex) previewFrameIndex++;
+  currentFrameIndex = insertIndex;
+  animations[activeAnimationIndex].currentFrameIndex = currentFrameIndex;
   project.sprites = sprites;
+  if (wasPlaying) schedulePreviewAdvance();
   render();
 }
 
 function deleteAnimationFrame(): void {
   if (animationFrames.length < 2) return;
-  stopPlayback();
-  animationFrames.splice(currentFrameIndex, 1);
-  currentFrameIndex = Math.min(currentFrameIndex, animationFrames.length - 1);
+  const wasPlaying = isPlaying;
+  const deletedIndex = currentFrameIndex;
+  animationFrames.splice(deletedIndex, 1);
+  frameDurationsMs.splice(deletedIndex, 1);
+  currentFrameIndex = Math.min(deletedIndex, animationFrames.length - 1);
+  if (wasPlaying) {
+    if (previewFrameIndex === deletedIndex) previewFrameIndex = currentFrameIndex;
+    else if (previewFrameIndex > deletedIndex) previewFrameIndex--;
+    previewFrameIndex = Math.min(previewFrameIndex, animationFrames.length - 1);
+  }
+  animations[activeAnimationIndex].currentFrameIndex = currentFrameIndex;
   project.sprites = animationFrames[currentFrameIndex];
+  if (wasPlaying) schedulePreviewAdvance();
   render();
 }
 
 function moveAnimationFrame(direction: -1 | 1): void {
-  const nextIndex = currentFrameIndex + direction;
+  const previousIndex = currentFrameIndex;
+  const nextIndex = previousIndex + direction;
   if (nextIndex < 0 || nextIndex >= animationFrames.length) return;
-  stopPlayback();
-  const [frame] = animationFrames.splice(currentFrameIndex, 1);
+  const wasPlaying = isPlaying;
+  const previousPreviewIndex = previewFrameIndex;
+  const [frame] = animationFrames.splice(previousIndex, 1);
   animationFrames.splice(nextIndex, 0, frame);
+  const [duration] = frameDurationsMs.splice(previousIndex, 1);
+  frameDurationsMs.splice(nextIndex, 0, duration);
+
+  const remapMovedIndex = (index: number): number => {
+    if (index === previousIndex) return nextIndex;
+    if (direction < 0 && index === nextIndex) return index + 1;
+    if (direction > 0 && index === nextIndex) return index - 1;
+    return index;
+  };
   currentFrameIndex = nextIndex;
+  previewFrameIndex = remapMovedIndex(previousPreviewIndex);
+  animations[activeAnimationIndex].currentFrameIndex = currentFrameIndex;
   project.sprites = frame;
+  if (wasPlaying) schedulePreviewAdvance();
   render();
 }
 
 function togglePlayback(): void {
-  if (playbackTimer !== null) {
+  if (isPlaying) {
     stopPlayback();
     renderFrameStrip();
     renderPreview();
     return;
   }
   if (animationFrames.length < 2) return;
+  isPlaying = true;
   previewFrameIndex = currentFrameIndex;
   playButton.textContent = "Pause";
   playButton.setAttribute("aria-pressed", "true");
   // Advance immediately so Play has visible feedback without waiting for the
   // first frame interval, then keep looping at the selected frame duration.
   advancePreview();
-  playbackTimer = window.setInterval(advancePreview, frameDurationMs);
+  schedulePreviewAdvance();
   renderFrameStrip();
   renderPreview();
 }
 
+function schedulePreviewAdvance(): void {
+  if (!isPlaying) return;
+  if (playbackTimer !== null) window.clearTimeout(playbackTimer);
+  const duration = frameDurationsMs[previewFrameIndex] ?? frameDurationMs;
+  playbackTimer = window.setTimeout(() => {
+    playbackTimer = null;
+    advancePreview();
+    schedulePreviewAdvance();
+  }, duration);
+}
+
 function advancePreview(): void {
+  if (animationFrames.length < 2) {
+    previewFrameIndex = 0;
+    renderFrameStrip();
+    renderPreview();
+    return;
+  }
   if (playbackMode === "loop") {
     previewFrameIndex = (previewFrameIndex + 1) % animationFrames.length;
   } else {
@@ -507,7 +816,7 @@ function frameHasPixel(frame: typeof project.sprites, x: number, y: number): boo
 }
 
 function renderPreview(): void {
-  const previewSprites = animationFrames[playbackTimer === null ? currentFrameIndex : previewFrameIndex] || project.sprites;
+  const previewSprites = animationFrames[isPlaying ? previewFrameIndex : currentFrameIndex] || project.sprites;
   const size = project.spriteSize;
   const scale = 12;
   previewCanvas.width = size * scale;
@@ -542,34 +851,65 @@ function renderPreview(): void {
       : `CC off · ${code(baseColor)} has priority on row ${selectedRow + 1}`;
   overlapSwatch.style.backgroundColor = colorIndexToCss(project.palette[result]);
   overlapColor.textContent = `${code(result)} · ${colorIndexToHex(project.palette[result])}`;
-  const previewIndex = playbackTimer === null ? currentFrameIndex : previewFrameIndex;
   updateAnimationFrameLabel();
+}
+
+function getGeneratedSource(): string {
+  const spriteCount = spriteMode === "single" ? 1 : 2;
+  if (exportFormat.value === "asm") return exportMsx2AnimationAsm(animations, spriteCount, project.spriteSize, project.palette);
+  if (exportFormat.value === "basic") return exportMsx2AnimationBasic(animations, spriteCount, project.spriteSize, project.palette);
+  return exportMsx2AnimationC(animations, spriteCount, project.spriteSize, project.palette);
+}
+
+function updateExportFormatUi(): void {
+  const format = exportFormat.value;
+  const labels = {
+    c: { language: "MSXGL / C", button: "Export C data", extension: ".h" },
+    asm: { language: "Z80 ASSEMBLY", button: "Export ASM data", extension: ".asm" },
+    basic: { language: "MSX BASIC DATA", button: "Export BASIC data", extension: ".bas" },
+  } as const;
+  const selected = labels[format as keyof typeof labels] ?? labels.c;
+  exportLanguage.textContent = selected.language;
+  exportSelectedButton.textContent = selected.button;
+  exportSelectedButton.dataset.extension = selected.extension;
 }
 
 function renderOutput(): void {
   try {
-    const source = exportMsx2AnimationC(
-      animationFrames,
-      spriteMode === "single" ? 1 : 2,
-      project.spriteSize,
-      project.palette,
-      frameDurationMs,
-    );
+    const source = getGeneratedSource();
+    const format = exportFormat.value;
+    const tokensByFormat = {
+      c: /(\/\*[\s\S]*?\*\/)|\b(?:const|u8|typedef|struct)\b|\b0x[\da-fA-F]+\b|\b\d+\b/g,
+      asm: /(;[^\n]*)|^[A-Za-z_][\w]*:|\b(?:db|dw|org|equ|include|macro|endm)\b|\$[\da-fA-F]+\b|\b\d+\b/gim,
+      basic: /(^(?:\s*\d+\s+REM\b.*))|^\s*\d+|\b(?:DATA|READ|RESTORE)\b|&H[\da-fA-F]+\b|\b\d+\b/gim,
+    } as const;
     const fragment = document.createDocumentFragment();
-    const tokens = /(\/\*[\s\S]*?\*\/)|\b(const|u8)\b|\b0x[\da-fA-F]+\b|\b\d+\b/g;
+    const tokens = tokensByFormat[format as keyof typeof tokensByFormat] ?? tokensByFormat.c;
+    const activeAnimationName = animations[activeAnimationIndex]?.name ?? "";
+    const activeFrameMarkers = {
+      c: `/* ${activeAnimationName}, frame ${currentFrameIndex + 1}, Sprite 0:`,
+      asm: `; ${activeAnimationName}, frame ${currentFrameIndex + 1}, Sprite 0:`,
+      basic: `REM Animation ${activeAnimationName}, frame ${currentFrameIndex + 1},`,
+    };
+    const activeFrameMarker = activeFrameMarkers[format as keyof typeof activeFrameMarkers] ?? activeFrameMarkers.c;
     let cursor = 0;
     for (const match of source.matchAll(tokens)) {
       const index = match.index ?? 0;
       if (index > cursor) fragment.append(document.createTextNode(source.slice(cursor, index)));
       const token = match[0];
       const span = document.createElement("span");
-      if (token.startsWith("/*")) {
-        const activeFrameMarker = `/* Animation frame ${currentFrameIndex + 1}, Sprite 0:`;
-        span.className = token.startsWith(activeFrameMarker)
-          ? "syntax-comment current-frame-source"
-          : "syntax-comment";
+      const isComment = token.startsWith("/*") || token.startsWith(";") || /^\s*\d+\s+REM\b/i.test(token);
+      const isCurrentFrame = isComment && (format === "basic"
+        ? token.toLowerCase().includes(activeFrameMarker.toLowerCase())
+        : token.startsWith(activeFrameMarker));
+      if (isComment) {
+        span.className = isCurrentFrame ? "syntax-comment current-frame-source" : "syntax-comment";
+      } else if (token.endsWith(":")) {
+        span.className = "syntax-label";
+      } else if (/^(?:const|u8|typedef|struct|db|dw|org|equ|include|macro|endm|DATA|READ|RESTORE)$/i.test(token)) {
+        span.className = "syntax-keyword";
       } else {
-        span.className = token === "const" || token === "u8" ? "syntax-keyword" : "syntax-number";
+        span.className = "syntax-number";
       }
       span.textContent = token;
       fragment.append(span);
@@ -577,10 +917,8 @@ function renderOutput(): void {
     }
     if (cursor < source.length) fragment.append(document.createTextNode(source.slice(cursor)));
     output.replaceChildren(fragment);
-    status.textContent = `Editing frame ${currentFrameIndex + 1}/${animationFrames.length} · ${project.spriteSize}×${project.spriteSize} · ${spriteMode === "single" ? "one sprite" : "sprite pair"}`;
   } catch (error) {
-    output.textContent = "";
-    status.textContent = error instanceof Error ? error.message : "Could not encode sprite.";
+    output.textContent = error instanceof Error ? `Export error: ${error.message}` : "Export error: Could not encode sprite.";
   }
 }
 
@@ -822,6 +1160,10 @@ function openPalettePicker(slot: number): void {
 }
 
 function render(): void {
+  if (animations[activeAnimationIndex]) animations[activeAnimationIndex].currentFrameIndex = currentFrameIndex;
+  frameDurationMs = frameDurationsMs[currentFrameIndex] ?? frameDurationMs;
+  frameDuration.value = String(frameDurationMs);
+  frameDurationValue.textContent = `${frameDurationMs} ms`;
   document.body.classList.toggle("single-sprite", spriteMode === "single");
   previewHint.textContent = spriteMode === "single"
     ? "Single-sprite animation preview. The second sprite is retained if you switch back to pair mode."
@@ -858,6 +1200,11 @@ for (const channel of Object.values(channels)) {
 }
 buildRgbCube();
 document.querySelector<HTMLButtonElement>("#close-picker")!.addEventListener("click", () => picker.close());
+document.querySelector<HTMLButtonElement>("#show-help")!.addEventListener("click", () => helpDialog.showModal());
+document.querySelector<HTMLButtonElement>("#close-help")!.addEventListener("click", () => helpDialog.close());
+helpDialog.addEventListener("click", (event) => {
+  if (event.target === helpDialog) helpDialog.close();
+});
 document.querySelector<HTMLButtonElement>("#show-info")!.addEventListener("click", () => infoDialog.showModal());
 document.querySelector<HTMLButtonElement>("#close-info")!.addEventListener("click", () => infoDialog.close());
 infoDialog.addEventListener("click", (event) => {
@@ -871,23 +1218,19 @@ modePicker.addEventListener("change", () => setSpriteMode(modePicker.value as "s
 playButton.addEventListener("click", togglePlayback);
 playbackModePicker.addEventListener("change", () => {
   playbackMode = playbackModePicker.value as "loop" | "pingpong";
+  animations[activeAnimationIndex].playbackMode = playbackMode;
   playbackDirection = 1;
   renderFrameStrip();
   renderPreview();
   saveEditorSettings();
 });
-document.querySelector<HTMLButtonElement>("#frame-new")!.addEventListener("click", () => addAnimationFrame(true));
-document.querySelector<HTMLButtonElement>("#frame-duplicate")!.addEventListener("click", () => addAnimationFrame(false));
-document.querySelector<HTMLButtonElement>("#frame-delete")!.addEventListener("click", deleteAnimationFrame);
-document.querySelector<HTMLButtonElement>("#frame-move-left")!.addEventListener("click", () => moveAnimationFrame(-1));
-document.querySelector<HTMLButtonElement>("#frame-move-right")!.addEventListener("click", () => moveAnimationFrame(1));
+document.querySelector<HTMLButtonElement>("#animation-new")!.addEventListener("click", createAnimation);
 frameDuration.addEventListener("input", () => {
   frameDurationMs = Number(frameDuration.value);
+  frameDurationsMs[currentFrameIndex] = frameDurationMs;
+  animations[activeAnimationIndex].frameDurationsMs = frameDurationsMs;
   frameDurationValue.textContent = `${frameDurationMs} ms`;
-  if (playbackTimer !== null) {
-    window.clearInterval(playbackTimer);
-    playbackTimer = window.setInterval(advancePreview, frameDurationMs);
-  }
+  if (isPlaying) schedulePreviewAdvance();
   renderFrameStrip();
   renderPreview();
   renderOutput();
@@ -923,96 +1266,159 @@ sizePicker.addEventListener("change", () => {
   project = createMsx2Project(size);
   project.palette = palette;
   animationFrames = [project.sprites];
+  frameDurationsMs = [frameDurationMs];
   currentFrameIndex = 0;
   selectedLayer = 0;
   selectedRow = 0;
+  animations = [{
+    name: "Animation 1",
+    frames: animationFrames,
+    frameDurationsMs,
+    playbackMode,
+    currentFrameIndex: 0,
+  }];
+  activeAnimationIndex = 0;
   render();
   saveEditorSettings();
 });
 
 document.querySelector<HTMLButtonElement>("#save-project")!.addEventListener("click", () => {
   project.spriteMode = spriteMode;
+  project.animations = animations;
+  project.currentAnimationIndex = activeAnimationIndex;
   project.animationFrames = animationFrames;
+  project.frameDurationsMs = frameDurationsMs;
   project.frameDurationMs = frameDurationMs;
   project.currentFrameIndex = currentFrameIndex;
   project.playbackMode = playbackMode;
   project.onionSkinEnabled = onionSkin.checked;
   project.onionOpacity = onionOpacityValuePercent;
-  download("sprite-animation.msxproj", JSON.stringify(project, null, 2), "application/json");
+  project.sprites = animationFrames[currentFrameIndex];
+  const projectText = JSON.stringify(project, null, 2);
+  if (customEditorMode && vscodeApi) vscodeApi.postMessage({ type: "save-project", text: projectText });
+  else download("sprite-animation.msxsm", projectText, "application/json");
 });
 
-document.querySelector<HTMLButtonElement>("#export-c")!.addEventListener("click", () => {
-  download("sprite-animation.h", exportMsx2AnimationC(animationFrames, spriteMode === "single" ? 1 : 2, project.spriteSize, project.palette, frameDurationMs), "text/x-c");
+exportFormat.addEventListener("change", () => {
+  updateExportFormatUi();
+  renderOutput();
 });
+exportSelectedButton.addEventListener("click", () => {
+  const extension = exportSelectedButton.dataset.extension ?? ".h";
+  const mimeType = exportFormat.value === "c" ? "text/x-c" : "text/plain";
+  download(`sprite-animation${extension}`, getGeneratedSource(), mimeType);
+});
+updateExportFormatUi();
+
+function loadProjectText(projectText: string): void {
+  const loaded = JSON.parse(projectText) as Partial<Msx2Project>;
+  if (loaded.format !== "spritemate-msx" || loaded.target !== "msx2-v9938-sm2" || (loaded.spriteSize !== 8 && loaded.spriteSize !== 16)) {
+    throw new Error("This is not a supported Spritemate MSX2 project.");
+  }
+  const size = loaded.spriteSize;
+  if (!Array.isArray(loaded.sprites) || !loaded.sprites.length) throw new Error("Project has no sprites.");
+  const normalizeFrame = (rawSprites: unknown): typeof project.sprites => {
+    if (!Array.isArray(rawSprites) || rawSprites.length < 1 || rawSprites.length > 2) {
+      throw new Error("Each animation frame must contain one or two sprites.");
+    }
+    const sprites = rawSprites.map((sprite) => normalizeMsx2Sprite(sprite as Msx2Project["sprites"][number], size));
+    if (sprites.some((sprite) => sprite.pixels.length !== size || sprite.pixels.some((row) => !Array.isArray(row) || row.length !== size))) {
+      throw new Error("Project sprite dimensions do not match the selected size.");
+    }
+    if (sprites.length === 1) sprites.push(createMsx2Project(size).sprites[1]);
+    return sprites;
+  };
+  const loadedFrameDuration = Number(loaded.frameDurationMs);
+  const defaultDuration = Number.isFinite(loadedFrameDuration)
+    ? Math.round(Math.max(80, Math.min(1000, loadedFrameDuration)) / 20) * 20
+    : savedEditorSettings.frameDurationMs ?? 180;
+  const loadedPlaybackMode = loaded.playbackMode === "loop" || loaded.playbackMode === "pingpong"
+    ? loaded.playbackMode
+    : savedEditorSettings.playbackMode ?? "loop";
+  const sourceAnimations: Msx2Animation[] = Array.isArray(loaded.animations) && loaded.animations.length
+    ? loaded.animations
+    : [{
+      name: "Animation 1",
+      frames: Array.isArray(loaded.animationFrames) && loaded.animationFrames.length
+        ? loaded.animationFrames
+        : [loaded.sprites],
+      frameDurationsMs: loaded.frameDurationsMs ?? [],
+      playbackMode: loadedPlaybackMode,
+      currentFrameIndex: loaded.currentFrameIndex,
+    }];
+  if (sourceAnimations.length > 16) throw new Error("Projects can contain up to 16 animations.");
+  animations = sourceAnimations.map((source, animationIndex) => {
+    if (!Array.isArray(source.frames) || source.frames.length < 1 || source.frames.length > 64) {
+      throw new Error(`Animation ${animationIndex + 1} must contain 1 to 64 frames.`);
+    }
+    const frames = source.frames.map(normalizeFrame);
+    const sourceDurations = Array.isArray(source.frameDurationsMs) ? source.frameDurationsMs : [];
+    const durations = frames.map((_, frameIndex) => {
+      const duration = Number(sourceDurations[frameIndex]);
+      return Number.isFinite(duration)
+        ? Math.round(Math.max(80, Math.min(1000, duration)) / 20) * 20
+        : defaultDuration;
+    });
+    const requestedFrame = Number.isInteger(source.currentFrameIndex)
+      ? source.currentFrameIndex!
+      : animationIndex === 0 && Number.isInteger(loaded.currentFrameIndex) ? loaded.currentFrameIndex! : 0;
+    return {
+      name: typeof source.name === "string" && source.name.trim()
+        ? source.name.trim().slice(0, 32)
+        : `Animation ${animationIndex + 1}`,
+      frames,
+      frameDurationsMs: durations,
+      playbackMode: source.playbackMode === "loop" || source.playbackMode === "pingpong"
+        ? source.playbackMode
+        : loadedPlaybackMode,
+      currentFrameIndex: Math.max(0, Math.min(requestedFrame, frames.length - 1)),
+    };
+  });
+  activeAnimationIndex = Math.max(0, Math.min(
+    Number.isInteger(loaded.currentAnimationIndex) ? loaded.currentAnimationIndex! : 0,
+    animations.length - 1,
+  ));
+  const active = animations[activeAnimationIndex];
+  animationFrames = active.frames;
+  frameDurationsMs = active.frameDurationsMs;
+  playbackMode = active.playbackMode;
+  currentFrameIndex = active.currentFrameIndex ?? 0;
+  frameDurationMs = frameDurationsMs[currentFrameIndex] ?? defaultDuration;
+  spriteMode = loaded.spriteMode === "single" || loaded.spriteMode === "pair"
+    ? loaded.spriteMode
+    : loaded.sprites.length === 1 ? "single" : "pair";
+  modePicker.value = spriteMode;
+  playbackModePicker.value = playbackMode;
+  onionSkin.checked = typeof loaded.onionSkinEnabled === "boolean"
+    ? loaded.onionSkinEnabled
+    : savedEditorSettings.onionSkinEnabled ?? false;
+  onionOpacityValuePercent = Number.isFinite(loaded.onionOpacity)
+    ? Math.max(10, Math.min(60, Math.round(loaded.onionOpacity! / 5) * 5))
+    : savedEditorSettings.onionOpacity ?? 25;
+  onionOpacity.value = String(onionOpacityValuePercent);
+  onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
+  project = {
+    format: "spritemate-msx",
+    version: 1,
+    target: "msx2-v9938-sm2",
+    spriteSize: size,
+    palette: normalizeMsx2Palette(loaded.palette),
+    sprites: animationFrames[currentFrameIndex],
+  };
+  sizePicker.value = String(size);
+  selectedLayer = 0;
+  selectedRow = 0;
+  stopPlayback();
+  render();
+  saveEditorSettings();
+}
 
 document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("change", async (event) => {
   const input = event.currentTarget as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
   try {
-    const loaded = JSON.parse(await file.text()) as Partial<Msx2Project>;
-    if (loaded.format !== "spritemate-msx" || loaded.target !== "msx2-v9938-sm2" || (loaded.spriteSize !== 8 && loaded.spriteSize !== 16)) {
-      throw new Error("This is not a supported Spritemate MSX2 project.");
-    }
-    const size = loaded.spriteSize;
-    if (!Array.isArray(loaded.sprites) || !loaded.sprites.length) throw new Error("Project has no sprites.");
-    const normalizeFrame = (rawSprites: unknown): typeof project.sprites => {
-      if (!Array.isArray(rawSprites) || rawSprites.length < 1 || rawSprites.length > 2) {
-        throw new Error("Each animation frame must contain one or two sprites.");
-      }
-      const sprites = rawSprites.map((sprite) => normalizeMsx2Sprite(sprite as Msx2Project["sprites"][number], size));
-      if (sprites.some((sprite) => sprite.pixels.length !== size || sprite.pixels.some((row) => !Array.isArray(row) || row.length !== size))) {
-        throw new Error("Project sprite dimensions do not match the selected size.");
-      }
-      if (sprites.length === 1) sprites.push(createMsx2Project(size).sprites[1]);
-      return sprites;
-    };
-    const sourceFrames = Array.isArray(loaded.animationFrames) && loaded.animationFrames.length
-      ? loaded.animationFrames
-      : [loaded.sprites];
-    if (sourceFrames.length > 64) throw new Error("Animations can contain up to 64 frames.");
-    animationFrames = sourceFrames.map(normalizeFrame);
-    currentFrameIndex = Math.max(0, Math.min(
-      Number.isInteger(loaded.currentFrameIndex) ? loaded.currentFrameIndex! : 0,
-      animationFrames.length - 1,
-    ));
-    const loadedFrameDuration = Number(loaded.frameDurationMs);
-    frameDurationMs = Number.isFinite(loadedFrameDuration)
-      ? Math.round(Math.max(80, Math.min(1000, loadedFrameDuration)) / 20) * 20
-      : savedEditorSettings.frameDurationMs ?? 180;
-    frameDuration.value = String(frameDurationMs);
-    frameDurationValue.textContent = `${frameDurationMs} ms`;
-    spriteMode = loaded.spriteMode === "single" || loaded.spriteMode === "pair"
-      ? loaded.spriteMode
-      : loaded.sprites.length === 1 ? "single" : "pair";
-    modePicker.value = spriteMode;
-    playbackMode = loaded.playbackMode === "loop" || loaded.playbackMode === "pingpong"
-      ? loaded.playbackMode
-      : savedEditorSettings.playbackMode ?? "loop";
-    playbackModePicker.value = playbackMode;
-    onionSkin.checked = typeof loaded.onionSkinEnabled === "boolean"
-      ? loaded.onionSkinEnabled
-      : savedEditorSettings.onionSkinEnabled ?? false;
-    onionOpacityValuePercent = Number.isFinite(loaded.onionOpacity)
-      ? Math.max(10, Math.min(60, Math.round(loaded.onionOpacity! / 5) * 5))
-      : savedEditorSettings.onionOpacity ?? 25;
-    onionOpacity.value = String(onionOpacityValuePercent);
-    onionOpacityValue.textContent = `${onionOpacityValuePercent}%`;
-    project = {
-      format: "spritemate-msx",
-      version: 1,
-      target: "msx2-v9938-sm2",
-      spriteSize: size,
-      palette: normalizeMsx2Palette(loaded.palette),
-      sprites: animationFrames[currentFrameIndex],
-    };
-    sizePicker.value = String(size);
-    selectedLayer = 0;
-    selectedRow = 0;
-    stopPlayback();
-    render();
-    saveEditorSettings();
-    status.textContent = `Loaded ${file.name}`;
+    loadProjectText(await file.text());
   } catch (error) {
     window.alert(error instanceof Error ? error.message : "Could not open project.");
   } finally {
@@ -1020,4 +1426,20 @@ document.querySelector<HTMLInputElement>("#project-file")!.addEventListener("cha
   }
 });
 
+if (customEditorMode && vscodeApi) {
+  window.addEventListener("message", (event: MessageEvent) => {
+    const message = event.data as { type?: string; text?: string };
+    if (message.type === "load-project" && typeof message.text === "string") {
+      try {
+        loadProjectText(message.text);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Could not open project.");
+      }
+    } else if (message.type === "save-error") {
+      window.alert("Could not save the MSX SpriteMate project file.");
+    }
+  });
+}
+
 render();
+if (customEditorMode && vscodeApi) vscodeApi.postMessage({ type: "ready" });

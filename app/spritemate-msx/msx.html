@@ -20,22 +20,25 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MSX Sprite Editor</title>
+    <title>MSX SpriteMate</title>
     <link rel="stylesheet" href="./src/js/msx/editor.css" />
     <script type="module" src="./src/js/msx/editor.ts"></script>
   </head>
   <body>
     <header class="topbar">
       <div>
-        <span class="eyebrow">SPRITEMATE FORK</span>
-        <h1>MSX Sprite Editor <span id="editor-version"></span></h1>
+        <h1>MSX SpriteMate <span id="editor-version"></span></h1>
       </div>
       <div class="actions">
-        <button id="show-info" class="secondary" type="button">Info</button>
-        <label class="button secondary" for="project-file">Open project</label>
-        <input id="project-file" type="file" accept=".msxproj,.json,application/json" hidden />
-        <button id="save-project" class="secondary">Save project</button>
-        <button id="export-c" class="primary">Export C data</button>
+        <div class="action-group" aria-label="Help and information">
+          <button id="show-help" class="secondary" type="button">Help</button>
+          <button id="show-info" class="secondary" type="button">Info</button>
+        </div>
+        <div class="action-group" aria-label="Project files">
+          <label class="button secondary" for="project-file">Open project</label>
+          <input id="project-file" type="file" accept=".msxsm,.json,application/json" hidden />
+          <button id="save-project" class="secondary" type="button">Save project</button>
+        </div>
         <button id="reset-layout" class="secondary" type="button">Reset windows</button>
       </div>
     </header>
@@ -60,7 +63,6 @@
               </select>
             </label>
           </div>
-          <p class="hint">Choose a sprite and draw with click or drag. In pair mode, the other sprite stays visible as a translucent guide.</p>
           <div class="layer-picker" role="group" aria-label="Sprite to draw">
             <button class="layer-button active" type="button" data-layer="0" aria-pressed="true">Sprite 0 · base</button>
             <button class="layer-button" type="button" data-layer="1" aria-pressed="false">Sprite 1 · CC overlay</button>
@@ -80,15 +82,9 @@
           </div>
           <div class="canvas-footer"><span id="canvas-status">Row 1 selected</span><span>The overlap preview shows the final CC color.</span></div>
           <div class="frame-editor-controls">
-            <div class="frame-editor-heading"><strong>Animation frames</strong><span class="hint">Click to edit · orange outline = preview</span></div>
-            <div class="frame-actions">
-              <button id="frame-new" class="secondary" type="button">New blank</button>
-              <button id="frame-duplicate" class="secondary" type="button">Duplicate</button>
-              <button id="frame-move-left" class="secondary" type="button" aria-label="Move frame left" title="Move frame left">←</button>
-              <button id="frame-move-right" class="secondary" type="button" aria-label="Move frame right" title="Move frame right">→</button>
-              <button id="frame-delete" class="secondary" type="button">Delete</button>
-            </div>
-            <div id="frame-strip" class="frame-strip" role="group" aria-label="Animation frames"></div>
+            <div class="frame-editor-heading"><strong>Animations</strong><span class="hint">Each row is a separate loop · drag a frame to another row to copy it.</span></div>
+            <div class="frame-actions"><button id="animation-new" class="secondary" type="button">New animation</button></div>
+            <div id="animation-tracks" class="animation-tracks" role="group" aria-label="Sprite animations"></div>
           </div>
         </div>
         <section class="preview-panel panel movable-panel" data-panel="preview">
@@ -103,7 +99,7 @@
           </div>
           <div class="animation-controls">
             <button id="animation-play" class="secondary" type="button" aria-pressed="false">Play</button>
-            <label for="frame-duration">Frame time <output id="frame-duration-value">180 ms</output></label>
+            <label for="frame-duration">Frame duration <output id="frame-duration-value">180 ms</output></label>
             <input id="frame-duration" type="range" min="80" max="1000" step="20" value="180" />
             <label for="animation-playback-mode">Playback</label>
             <select id="animation-playback-mode" aria-label="Playback mode">
@@ -142,10 +138,19 @@
             </table>
           </div>
           <div class="legend"><b>CC</b> overlap: OR color codes <span>·</span> <b>IC</b> ignore sprite conflicts <span>·</span> <b>EC</b> shift left 32 px</div>
-          <p class="warning">Palette data is included in the C export. Palette slot 0 is transparent for sprites by default.</p>
+          <p class="warning">Palette data is included in every export format. Palette slot 0 is transparent for sprites by default.</p>
         </aside>
         <section class="export-panel panel movable-panel" data-panel="export">
-        <div class="panel-heading window-handle"><div><span class="eyebrow">MSXGL / C</span><h2>Generated data</h2></div><span id="export-status" class="hint">Edit the sprite to refresh output.</span></div>
+        <div class="panel-heading window-handle export-heading">
+          <div class="export-title"><span id="export-language" class="eyebrow">MSXGL / C</span><h2>Generated data</h2></div>
+          <div class="export-options">
+            <div class="export-tools">
+              <label for="export-format">Format</label>
+              <select id="export-format" aria-label="Generated data format"><option value="c">C · MSXgl</option><option value="asm">Z80 Assembly</option><option value="basic">MSX BASIC DATA</option></select>
+              <button id="export-selected" class="primary" type="button">Export C data</button>
+            </div>
+          </div>
+        </div>
         <pre id="export-output"><code></code></pre>
         </section>
       </section>
@@ -166,19 +171,64 @@
       <p class="hint">512 RGB colors · 3 bits per channel · select a square or adjust the sliders.</p>
       <div id="rgb-cube" class="rgb-cube"></div>
     </dialog>
+    <dialog id="help-dialog" class="info-dialog help-dialog" aria-labelledby="help-title">
+      <div class="picker-heading">
+        <div><span class="eyebrow">USER GUIDE</span><h2 id="help-title">Using MSX SpriteMate</h2></div>
+        <button id="close-help" class="secondary" type="button">Close</button>
+      </div>
+      <div class="info-content help-content">
+        <section>
+          <h3>Draw a sprite</h3>
+          <ul>
+            <li>Choose <strong>8 × 8</strong> or <strong>16 × 16</strong> and select <strong>Single sprite</strong> or <strong>Sprite pair + CC</strong>.</li>
+            <li>Click or drag on the canvas to draw. Right-click or hold <kbd>Shift</kbd> while drawing to erase.</li>
+            <li>In pair mode, edit <strong>Sprite 0 · base</strong> and <strong>Sprite 1 · CC overlay</strong> separately. The other sprite appears as a translucent guide.</li>
+            <li>The overlap preview shows the combined result. Sprite 1's CC setting is per scanline and combines overlapping color codes with a bitwise OR.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Choose colors</h3>
+          <ul>
+            <li><strong>Color slots</strong> contains 16 sprite color codes, from P00 to P15. The four-bit code is what the VDP uses for each sprite scanline.</li>
+            <li>Click a slot to choose any of the 512 V9938 colors. Each RGB channel has 3 bits.</li>
+            <li>In <strong>Scanline settings</strong>, choose a palette slot for each sprite and line. Enable <strong>CC</strong> on Sprite 1 to apply overlap color mixing. <strong>IC</strong> inhibits sprite conflict detection; <strong>EC</strong> shifts that sprite 32 pixels left.</li>
+            <li>The <strong>CC color map</strong> shows the result for every pair of color codes.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Build an animation</h3>
+          <ul>
+            <li>Each row in <strong>Animations</strong> is a separate animation for this sprite. Rename a row by editing its name.</li>
+            <li><strong>New animation</strong> starts a blank animation. <strong>Duplicate</strong> copies the whole animation, including frames, timing, and playback mode.</li>
+            <li><strong>+ Frame</strong> adds a blank frame. <strong>Duplicate frame</strong> copies the selected frame. Use the arrows to change frame order; <strong>Delete frame</strong> removes it.</li>
+            <li>Drag a frame onto another animation row to copy it there. Its frame duration is copied too; the original stays in place.</li>
+            <li>Select any frame to edit it, including while playback is running. Adding, removing, or moving frames does not stop playback.</li>
+            <li>Set the selected frame's duration with the slider, then choose <strong>Loop</strong> or <strong>Ping-pong</strong> and press <strong>Play</strong>.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Save and export</h3>
+          <ul>
+            <li>Use <strong>Save project</strong> to download your editable project, or <strong>Open project</strong> to load one.</li>
+            <li><strong>Generated data</strong> updates as you edit. Choose C, Z80 Assembly, or MSX BASIC DATA in the format menu, then use the export button to download it.</li>
+            <li>Panels can be dragged by their headers and collapsed with the control in the panel heading.</li>
+          </ul>
+        </section>
+      </div>
+    </dialog>
     <dialog id="info-dialog" class="info-dialog" aria-labelledby="info-title">
       <div class="picker-heading">
-        <div><span class="eyebrow">ABOUT THIS EDITOR</span><h2 id="info-title">Spritemate MSX</h2></div>
+        <div><span class="eyebrow">ABOUT THIS EDITOR</span><h2 id="info-title">MSX SpriteMate</h2></div>
         <button id="close-info" class="secondary" type="button">Close</button>
       </div>
       <div class="info-content">
-        <p>This MSX2 sprite editor is a standalone fork of <strong>Spritemate</strong>, the original Commodore 64 sprite editor.</p>
+        <p>MSX SpriteMate is an MSX2 sprite editor based on <strong>Spritemate</strong>, the original Commodore 64 sprite editor.</p>
         <dl>
           <dt>Original editor</dt><dd>Spritemate by Ingo Hinterding (awsm)</dd>
           <dt>Original project</dt><dd><a href="https://github.com/Esshahn/spritemate" target="_blank" rel="noreferrer">github.com/Esshahn/spritemate</a></dd>
           <dt>Original website</dt><dd><a href="https://spritemate.com/" target="_blank" rel="noreferrer">spritemate.com</a></dd>
           <dt>License</dt><dd>MIT · Copyright © 2017 Ingo Hinterding</dd>
-          <dt>This fork</dt><dd>MSX2 V9938 Sprite Mode 2 editor with CC color mixing and animation tools.</dd>
+          <dt>MSX SpriteMate</dt><dd>MSX2 V9938 Sprite Mode 2 editor with CC color mixing and animation tools.</dd>
         </dl>
         <p class="hint">The original attribution and license are included with this project.</p>
       </div>

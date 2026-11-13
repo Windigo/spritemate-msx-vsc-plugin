@@ -10,23 +10,22 @@ This document records the animation design for future work on the standalone MSX
 - An animation frame contains one or two sprite layers according to the selected project mode. The editor keeps the inactive second layer when switching to single-sprite mode so switching back does not discard artwork.
 - The existing overlap preview window is the animation preview. Playback controls, frame timing, and loop mode live in that window; the editable frame timeline lives under Draw sprite.
 - The palette is shared and fixed across all frames by default. Frame changes animate patterns and scanline color-table data without flashing the palette.
-- Project files preserve the mode, frame list, current frame, and frame duration. Existing single-frame `.msxproj` files continue to load as one frame.
+- Project files preserve the mode, frame list, current frame, and each frame's duration. Existing project JSON continues to load, applying its shared duration to every frame.
 - An earlier external AI integration was removed at the user's request. Keep animation work independent of AI services and API keys; any future image-generation workflow must be a separate, explicitly requested feature.
 
 ## First implementation
 
 - Implemented: single-sprite / sprite-pair mode selector; the hidden overlay is retained in single mode.
 - Implemented: editable frame timeline under Draw sprite, with new blank, duplicate, select, reorder, and delete actions. Keep at least one frame and cap the editor at 64 frames. Selecting a frame while playing changes the editing frame without stopping the preview.
-- Implemented: play/pause, frame-duration slider, and loop / ping-pong selection in the existing preview panel. Pair mode previews CC output; single mode previews Sprite 0.
+- Implemented: play/pause, per-frame duration control for the selected frame, and loop / ping-pong selection in the existing preview panel. Pair mode previews CC output; single mode previews Sprite 0.
 - Implemented: the drawing canvas stays on the selected editable frame while playback runs in the preview.
-- Implemented: save/load of mode, frame list, selected frame, and frame duration in `.msxproj`.
-- Implemented: C output has unique pattern/color arrays for every frame, a frame table, and shared palette data once.
+- Implemented: save/load of mode, frame list, selected frame, and per-frame durations in `.msxsm`.
+- Implemented: C output has unique pattern/color arrays for every frame, a frame table with each frame's duration, and shared palette data once.
 - Implemented: adjustable onion skin, frame reordering, looping, and ping-pong playback.
-- Follow-up: add per-frame timing and animation tags.
+- Follow-up: add animation tags.
 
 ## Follow-up opportunities
 
-- Reorder frames and support frame durations per frame.
 - Add animation tags.
 - Reuse identical pattern data in exported animation arrays to reduce ROM size.
 - Allow importing a sprite sheet after deterministic MSX-size, palette, and CC conversion.

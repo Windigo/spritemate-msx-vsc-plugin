@@ -73,6 +73,7 @@ main{max-width:none;width:100%;margin:0}
 .syntax-comment.current-frame-source{color:#b4f2dd;background:#19332c;border-radius:2px}
 .syntax-keyword{color:#83b7ff}
 .syntax-number{color:#f4c879}
+.syntax-label{color:#c69cff}
 @media(max-width:960px){.export-panel pre{flex:0 1 auto;max-height:45vh;min-height:180px}}
 .cc-map-panel{padding:18px 20px}
 .cc-map-scroll{max-width:100%;overflow:auto}
@@ -132,3 +133,79 @@ body.single-sprite .scanline-panel th:nth-child(3),body.single-sprite .scanline-
 .info-content dd{margin:0;font-size:13px}
 .info-content a{color:var(--accent)}
 @media(max-width:600px){.info-content dl{grid-template-columns:1fr;gap:4px}.info-content dd{margin:0 0 10px}}
+
+.animation-tracks{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto;margin-top:9px;padding:1px 2px 4px}
+.animation-track{padding:8px 9px;border:1px solid var(--line);border-radius:8px;background:linear-gradient(110deg,#111923,#0e141c)}
+.animation-track.active{border-color:#75e0c0;box-shadow:inset 2px 0 #75e0c0}
+.animation-track-heading{display:grid;grid-template-columns:minmax(130px,1fr) auto;align-items:center;gap:8px;min-width:0}
+.animation-name{width:100%;min-width:0;height:30px;padding:5px 9px;color:#e4edf6;font:500 11px 'Space Grotesk',sans-serif;background:#19232f;border:1px solid #344252;border-radius:6px;box-shadow:inset 0 1px 2px #0004;transition:border-color .15s,box-shadow .15s}
+.animation-name:hover{border-color:#526579}
+.animation-name:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px #b4f2dd24}
+.animation-track-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:4px}
+.animation-track-actions button{min-height:27px;padding:4px 7px;font-size:9px;white-space:nowrap}
+.animation-track-actions button[aria-label^="Move"]{min-width:27px;padding:3px}
+.animation-track-actions .animation-remove{min-width:27px;color:#ff9d9d}
+.animation-track .frame-strip{margin-top:5px}
+@media(max-width:760px){.animation-track-heading{grid-template-columns:1fr}.animation-track-actions{justify-content:flex-start}}
+
+.animation-track.drag-source{opacity:.62}
+.animation-track.drop-target{border-color:#75e0c0;background:linear-gradient(110deg,#152a2a,#10201f);box-shadow:inset 2px 0 #75e0c0,0 0 0 1px #75e0c044}
+.animation-track.drop-full{border-style:dashed}
+.frame-button[draggable="true"]{cursor:grab}
+.frame-button[draggable="true"]:active{cursor:grabbing}
+
+.animation-management-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px}
+.animation-management-actions button{min-height:27px;padding:4px 8px;font-size:9px;white-space:nowrap}
+.animation-management-actions .animation-remove{color:#ffb3b3;border-color:#654147;background:#291b21}
+.animation-management-actions .animation-remove:hover{border-color:#d47b86;background:#382129}
+.animation-frame-actions{display:flex;align-items:center;gap:5px;padding-top:7px;margin-top:7px;border-top:1px solid #26313e}
+.animation-frame-actions::before{content:"FRAMES";margin-right:auto;color:#7f8e9f;font:9px 'DM Mono',monospace;letter-spacing:.1em}
+.animation-frame-actions button{min-height:26px;padding:4px 7px;font-size:9px;white-space:nowrap}
+.animation-frame-actions button[data-action="move-left"],.animation-frame-actions button[data-action="move-right"]{min-width:27px;padding:3px}
+.animation-track .frame-strip{margin-top:5px}
+@media(max-width:520px){.animation-track-heading{grid-template-columns:minmax(0,1fr)}.animation-management-actions{justify-content:flex-start}.animation-frame-actions{flex-wrap:wrap}.animation-frame-actions::before{width:100%;margin:0}}
+
+.help-dialog{width:min(760px,calc(100vw - 32px))}
+.help-content{padding-right:5px}
+.help-content section+section{margin-top:19px;padding-top:15px;border-top:1px solid #283441}
+.help-content h3{margin:0 0 7px;color:#b4f2dd;font-size:13px}
+.help-content ul{margin:0;padding-left:19px;color:#c5d0db;font-size:12px;line-height:1.65}
+.help-content li+li{margin-top:4px}
+.help-content strong{color:#edf4fa}
+.help-content kbd{padding:1px 5px;border:1px solid #465565;border-radius:4px;background:#19232f;color:#e1eaf3;font:10px 'DM Mono',monospace}
+
+.export-heading{align-items:center;gap:18px}
+.export-title{min-width:150px}
+.export-title h2{margin:3px 0 0}
+.export-options{display:flex;align-items:center;justify-content:flex-end;min-width:0}
+.export-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.export-tools label{font-size:10px;color:var(--muted);white-space:nowrap}
+.export-tools select{min-width:150px;padding:7px 10px;font-size:11px}
+.export-tools #export-selected{min-height:34px;padding:7px 12px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 3px 14px #75e0c022}
+@media(max-width:760px){.export-heading{align-items:flex-start;flex-direction:column;gap:9px}.export-options{justify-content:flex-start;width:100%}.export-tools{justify-content:flex-start;flex-wrap:wrap}}
+@media(max-width:440px){.export-tools{width:100%;gap:6px}.export-tools label{width:100%}.export-tools select{flex:1;min-width:0}.export-tools #export-selected{flex:0 0 auto}}
+
+.topbar{min-height:82px;height:auto;padding:12px 26px;gap:20px}
+.topbar h1{font-size:20px;white-space:nowrap}
+.actions{align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.action-group{display:flex;align-items:center;gap:3px;padding:3px;border:1px solid #283646;border-radius:9px;background:#0d141c}
+.action-group button,.action-group .button{min-height:34px;padding:7px 10px;border-color:transparent;background:transparent;border-radius:6px;font-size:11px;white-space:nowrap}
+.action-group button:hover,.action-group .button:hover{border-color:#344252;background:#19232f}
+#reset-layout{min-height:40px;padding:8px 10px;font-size:11px;white-space:nowrap}
+@media(max-width:1050px){.topbar{align-items:flex-start;flex-direction:column;padding:14px 18px;gap:10px}.actions{width:100%;justify-content:flex-start}}
+@media(max-width:600px){.actions{gap:7px}.action-group{flex:1}.action-group button,.action-group .button{flex:1;text-align:center;padding:7px 6px;font-size:10px}#reset-layout{flex:1}}
+
+/* Clear contrast for the VS Code webview title and individually defined header buttons. */
+.topbar h1{color:#f5f8fc!important}
+#editor-version{display:inline-block;margin-left:5px;padding:3px 6px;vertical-align:middle;border:1px solid #456354;border-radius:5px;background:#172821;color:#a8e5cc;font:500 10px 'DM Mono',monospace;letter-spacing:0}
+.action-group{gap:6px;padding:5px;border-radius:10px}
+.action-group:first-child{border-color:#42695f;background:linear-gradient(135deg,#14231f,#111b1c)}
+.action-group:nth-child(2){border-color:#506479;background:linear-gradient(135deg,#1a2531,#151d27)}
+.action-group button,.action-group .button{min-height:35px;padding:7px 11px;border:1px solid #4b5d6f!important;border-radius:7px!important;background:#202d3a!important;color:#e5edf5!important;font-size:11px;font-weight:500}
+.action-group:first-child button{border-color:#44685e!important;color:#d6f0e7!important;background:#20332e!important}
+.action-group:nth-child(2) button,.action-group:nth-child(2) .button{border-color:#4e6276!important;color:#e0e9f3!important;background:#253241!important}
+.action-group button:hover,.action-group .button:hover{border-color:#a0d6c6!important;background:#304552!important;color:#fff!important}
+.action-group button:focus-visible,.action-group .button:focus-visible{outline:2px solid #b4f2dd;outline-offset:2px}
+#reset-layout{color:#d6e2ed}
+.action-group{padding:0;border:0!important;border-radius:0;background:transparent!important;box-shadow:none}
+.panel-heading h2,.picker-heading h2,.frame-editor-heading strong{color:#edf4fa!important}

@@ -1,7 +1,7 @@
 {
   "name": "spritemate-msx",
   "version": "0.1.0",
-  "description": "Standalone MSX2 sprite editor based on Spritemate",
+  "description": "MSX SpriteMate, an MSX2 sprite editor based on Spritemate",
   "author": "Ingo Hinterding",
   "license": "MIT",
   "type": "module",

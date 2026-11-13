@@ -15,6 +15,14 @@ export interface Msx2Sprite {
   scanlines: Msx2Scanline[];
 }
 
+export interface Msx2Animation {
+  name: string;
+  frames: Msx2Sprite[][];
+  frameDurationsMs: number[];
+  playbackMode: "loop" | "pingpong";
+  currentFrameIndex?: number;
+}
+
 export interface Msx2Project {
   format: "spritemate-msx";
   version: 1;
@@ -26,8 +34,13 @@ export interface Msx2Project {
   /** Optional fields keep old one-frame project files compatible. */
   spriteMode?: "single" | "pair";
   animationFrames?: Msx2Sprite[][];
+  /** Duration for each animation frame in milliseconds. Older files use frameDurationMs for all frames. */
+  frameDurationsMs?: number[];
   frameDurationMs?: number;
   currentFrameIndex?: number;
+  /** Named animation clips for one sprite project. Older files use animationFrames. */
+  animations?: Msx2Animation[];
+  currentAnimationIndex?: number;
   playbackMode?: "loop" | "pingpong";
   onionSkinEnabled?: boolean;
   onionOpacity?: number;

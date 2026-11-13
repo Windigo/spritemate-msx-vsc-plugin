@@ -7,3 +7,8 @@ build-extension.sh
 scripts/**
 *.vsix
 **/*.map
+
+# Internal development notes and reference material are not part of the extension.
+ANIMATION-PLAN.md
+litarature/**
+literature/**
