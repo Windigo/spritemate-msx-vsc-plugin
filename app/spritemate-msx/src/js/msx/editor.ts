@@ -1,5 +1,5 @@
 import { colorIndexToCss, colorIndexToHex, DEFAULT_PALETTE, MSX1_PALETTE, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx1Animation, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
+import { exportMsx1Animation, exportMsx1PreviewC, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
@@ -26,9 +26,14 @@ const rowsElement = document.querySelector<HTMLTableSectionElement>("#scanline-r
 const paletteSlotsElement = document.querySelector<HTMLDivElement>("#palette-slots")!;
 const ccMapElement = document.querySelector<HTMLDivElement>("#cc-map-grid")!;
 const output = document.querySelector<HTMLElement>("#export-output code")!;
+const exportOutputPanel = document.querySelector<HTMLPreElement>("#export-output")!;
 const exportFormat = document.querySelector<HTMLSelectElement>("#export-format")!;
 const exportLanguage = document.querySelector<HTMLElement>("#export-language")!;
 const exportSelectedButton = document.querySelector<HTMLButtonElement>("#export-selected")!;
+const exportCodeTabs = document.querySelector<HTMLDivElement>("#export-code-tabs")!;
+const exportDataTab = document.querySelector<HTMLButtonElement>("#export-tab-data")!;
+const exportPreviewTab = document.querySelector<HTMLButtonElement>("#export-tab-preview")!;
+let activeExportTab: "data" | "preview" = "data";
 const baseRowGuide = document.querySelector<HTMLDivElement>("#base-row-guide")!;
 const overlayRowGuide = document.querySelector<HTMLDivElement>("#overlay-row-guide")!;
 const previewCanvas = document.querySelector<HTMLCanvasElement>("#overlap-preview")!;
@@ -1196,19 +1201,28 @@ function getGeneratedSource(): string {
 function updateExportFormatUi(): void {
   const format = exportFormat.value;
   const labels = {
-    c: { language: msxTarget === "msx1" ? "MSX1 / C" : "MSXGL / C", button: "Export C data", extension: ".h" },
-    asm: { language: "Z80 ASSEMBLY", button: "Export ASM data", extension: ".asm" },
-    basic: { language: "MSX BASIC DATA", button: "Export BASIC data", extension: ".bas" },
+    c: { language: msxTarget === "msx1" ? "MSX1 / C" : "MSXGL / C", extension: ".h" },
+    asm: { language: "Z80 ASSEMBLY", extension: ".asm" },
+    basic: { language: "MSX BASIC DATA", extension: ".bas" },
   } as const;
   const selected = labels[format as keyof typeof labels] ?? labels.c;
   exportLanguage.textContent = selected.language;
-  exportSelectedButton.textContent = selected.button;
+  exportSelectedButton.textContent = "Export";
   exportSelectedButton.dataset.extension = selected.extension;
+  const previewAvailable = msxTarget === "msx1" && format === "c";
+  exportCodeTabs.hidden = !previewAvailable;
+  if (!previewAvailable) activeExportTab = "data";
+  exportDataTab.setAttribute("aria-selected", String(activeExportTab === "data"));
+  exportPreviewTab.setAttribute("aria-selected", String(activeExportTab === "preview"));
+  exportOutputPanel.setAttribute("aria-labelledby", activeExportTab === "data" ? "export-tab-data" : "export-tab-preview");
 }
 
 function renderOutput(): void {
   try {
-    const source = getGeneratedSource();
+    const showingPreview = activeExportTab === "preview" && msxTarget === "msx1" && exportFormat.value === "c";
+    const source = showingPreview
+      ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+      : getGeneratedSource();
     const format = exportFormat.value;
     const tokensByFormat = {
       c: /(\/\*[\s\S]*?\*\/)|\b(?:const|u8|typedef|struct)\b|\b0x[\da-fA-F]+\b|\b\d+\b/g,
@@ -1231,7 +1245,7 @@ function renderOutput(): void {
       const token = match[0];
       const span = document.createElement("span");
       const isComment = token.startsWith("/*") || token.startsWith(";") || /^\s*\d+\s+REM\b/i.test(token);
-      const isCurrentFrame = isComment && (format === "basic"
+      const isCurrentFrame = !showingPreview && isComment && (format === "basic"
         ? token.toLowerCase().includes(activeFrameMarker.toLowerCase())
         : token.startsWith(activeFrameMarker));
       if (isComment) {
@@ -1805,9 +1819,23 @@ exportFormat.addEventListener("change", () => {
   renderOutput();
 });
 exportSelectedButton.addEventListener("click", () => {
-  const extension = exportSelectedButton.dataset.extension ?? ".h";
+  const exportingPreview = activeExportTab === "preview" && msxTarget === "msx1" && exportFormat.value === "c";
+  const extension = exportingPreview ? ".c" : exportSelectedButton.dataset.extension ?? ".h";
   const mimeType = exportFormat.value === "c" ? "text/x-c" : "text/plain";
-  download(`sprite-animation${extension}`, getGeneratedSource(), mimeType);
+  const source = exportingPreview
+    ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+    : getGeneratedSource();
+  download(exportingPreview ? `sprite-animation-preview${extension}` : `sprite-animation${extension}`, source, mimeType);
+});
+exportDataTab.addEventListener("click", () => {
+  activeExportTab = "data";
+  updateExportFormatUi();
+  renderOutput();
+});
+exportPreviewTab.addEventListener("click", () => {
+  activeExportTab = "preview";
+  updateExportFormatUi();
+  renderOutput();
 });
 updateExportFormatUi();
 

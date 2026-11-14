@@ -163,11 +163,15 @@
             <div class="export-tools">
               <label for="export-format">Format</label>
               <select id="export-format" aria-label="Generated data format"><option value="c">C · MSXgl</option><option value="asm">Z80 Assembly</option><option value="basic">MSX BASIC DATA</option></select>
-              <button id="export-selected" class="primary" type="button">Export C data</button>
+              <button id="export-selected" class="primary" type="button">Export</button>
             </div>
           </div>
         </div>
-        <pre id="export-output"><code></code></pre>
+        <div id="export-code-tabs" class="export-code-tabs" role="tablist" aria-label="Export source" hidden>
+          <button id="export-tab-data" class="export-code-tab" type="button" role="tab" aria-selected="true" aria-controls="export-output">Data</button>
+          <button id="export-tab-preview" class="export-code-tab" type="button" role="tab" aria-selected="false" aria-controls="export-output">Preview</button>
+        </div>
+        <pre id="export-output" role="tabpanel" aria-labelledby="export-tab-data"><code></code></pre>
         </section>
       </section>
     </main>
@@ -228,7 +232,7 @@
           <h3>Save and export</h3>
           <ul>
             <li>Use <strong>Save project</strong> to download your editable project, or <strong>Open project</strong> to load one. A project stores its target, sprite size and mode, MSX1 magnification, sprites, animations, frame timing, and playback settings. The editor also remembers the selected target and magnification after a refresh.</li>
-            <li><strong>Generated data</strong> updates as you edit. Choose C, Z80 Assembly, or MSX BASIC DATA in the format menu, then use the export button to download it.</li>
+            <li><strong>Generated data</strong> updates as you edit. Choose C, Z80 Assembly, or MSX BASIC DATA in the format menu, then use the Data and Preview tabs for MSX1 C output. The Export button downloads the selected tab; keep the data header and separate MSXgl preview source together when building the preview as an MSX1 ROM.</li>
             <li>Panels can be dragged by their headers and collapsed with the control in the panel heading.</li>
           </ul>
         </section>

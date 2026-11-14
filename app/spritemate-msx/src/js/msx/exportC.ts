@@ -239,8 +239,9 @@ export function exportMsx1Animation(
       "/* Hardware limits: 32 sprites total, at most 4 on a scanline. Set sprite size/magnification in VDP register 1. */",
       "typedef struct { u16 duration_ms; const u8* pattern0; u8 color0; const u8* pattern1; u8 color1; } Msx1SpriteFrame;",
       "typedef struct { const char* name; const Msx1SpriteFrame* frames; u8 frame_count; u8 ping_pong; } Msx1SpriteAnimation;",
-      `const u8 sprite_size = ${size}; /* configure VDP register 1 */`,
-      `const u8 sprite_magnification = ${magnification}; /* configure VDP register 1 */`,
+      `static const u8 sprite_size = ${size}; /* configure VDP register 1 */`,
+      `static const u8 sprite_count = ${spriteCount};`,
+      `static const u8 sprite_magnification = ${magnification}; /* configure VDP register 1 */`,
     ];
     const animationRows: string[] = [];
     animations.forEach((animation, animationIndex) => {
@@ -253,17 +254,21 @@ export function exportMsx1Animation(
           const prefix = `anim_a${String(animationIndex).padStart(2, "0")}_f${String(frameIndex).padStart(2, "0")}_s${spriteIndex}`;
           const patternName = `${prefix}_pattern`;
           const colorName = `${prefix}_color`;
-          parts.push(`/* ${cleanComment(animation.name)}, frame ${frameIndex + 1}, Sprite ${spriteIndex}. */`, formatArray(patternName, encoded.pattern), `const u8 ${colorName} = ${encoded.colors[0]};`);
+          parts.push(
+            `/* ${cleanComment(animation.name)}, frame ${frameIndex + 1}, Sprite ${spriteIndex}. */`,
+            formatArray(patternName, encoded.pattern).replace("const u8 ", "static const u8 "),
+            `#define ${colorName} ${encoded.colors[0]}`,
+          );
           fields.push(patternName, colorName);
         });
         if (spriteCount === 1) fields.push("0", "0");
         frameRows.push(`    { ${animation.frameDurationsMs[frameIndex]}, ${fields.join(", ")} }`);
       });
-      parts.push(`const Msx1SpriteFrame ${tableName}[] = {\n${frameRows.join(",\n")}\n};`);
+      parts.push(`static const Msx1SpriteFrame ${tableName}[] = {\n${frameRows.join(",\n")}\n};`);
       const name = `"${cleanComment(animation.name).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
       animationRows.push(`    { ${name}, ${tableName}, ${animation.frames.length}, ${animation.playbackMode === "pingpong" ? 1 : 0} }`);
     });
-    parts.push(`const Msx1SpriteAnimation sprite_animations[] = {\n${animationRows.join(",\n")}\n};`, `const u8 sprite_animation_count = ${animations.length};`);
+    parts.push(`static const Msx1SpriteAnimation sprite_animations[] = {\n${animationRows.join(",\n")}\n};`, `static const u8 sprite_animation_count = ${animations.length};`);
     return parts.join("\n\n");
   }
   if (format === "asm") {
@@ -321,4 +326,223 @@ export function exportMsx1Animation(
     });
   });
   return lines.join("\n");
+}
+
+/** Emit a standalone MSXgl player source file for an exported MSX1 data header. */
+export function exportMsx1PreviewC(size: SpriteSize, magnification: 1 | 2, animationIndex = 0): string {
+  return `/*
+ * MSX SpriteMate animation preview for MSX1 TMS9918A.
+ * This standalone preview program uses MSXgl, including its print module.
+ * Add "print" to LibModules in the MSXgl project configuration.
+ * For MSX1, enable PRINT_USE_TEXT and disable PRINT_USE_BITMAP, PRINT_USE_VRAM,
+ * and PRINT_USE_SPRITE in msxgl_config.h; set PRINT_COLOR_NUM to 1.
+ * Save beside sprite-animation.h and build it as an MSX1 ROM with MSXgl.
+ * Controls: Left/Right select animations, Space pauses/resumes, Escape restarts.
+ */
+#include "msxgl.h"
+#include "sprite-animation.h"
+#include "font/font_mgl_sample8.h"
+
+/* Starts with the animation selected in SpriteMate, from its first frame. */
+#define PREVIEW_ANIMATION_INDEX ${animationIndex}
+/* Sprite positions can be adjusted here. */
+#define PREVIEW_SPRITE_X 112
+#define PREVIEW_SPRITE_Y 72
+
+static const u8 g_PreviewSpriteSize = ${size};
+static const u8 g_PreviewMagnification = ${magnification};
+static const u8 g_SecondPatternIndex = ${size === 16 ? 4 : 1};
+static const u16 g_FrameTickMs = 20; /* MSX1 default is 50 Hz. */
+
+static const Msx1SpriteAnimation* g_Animation;
+static u8 g_AnimationIndex = PREVIEW_ANIMATION_INDEX;
+static u8 g_FrameIndex = 0;
+static u8 g_PingPongReverse = 0;
+static u16 g_FrameTimeLeft = 0;
+static u8 g_PreviousLeft = 0;
+static u8 g_PreviousRight = 0;
+static u8 g_PreviousSpace = 0;
+static u8 g_PreviousEscape = 0;
+static u8 g_IsPaused = 0;
+
+static void LoadSpritePattern(const u8* pattern, u8 firstIndex)
+{
+    if (g_PreviewSpriteSize == 16)
+    {
+        /* Data is exported left-to-right, top-to-bottom. TMS9918A stores
+           16x16 pattern blocks as top-left, bottom-left, top-right, bottom-right. */
+        VDP_LoadSpritePattern(pattern, firstIndex, 1);
+        VDP_LoadSpritePattern(pattern + 16, firstIndex + 1, 1);
+        VDP_LoadSpritePattern(pattern + 8, firstIndex + 2, 1);
+        VDP_LoadSpritePattern(pattern + 24, firstIndex + 3, 1);
+    }
+    else
+    {
+        VDP_LoadSpritePattern(pattern, firstIndex, 1);
+    }
+}
+
+static void ShowFrame(const Msx1SpriteFrame* frame)
+{
+    LoadSpritePattern(frame->pattern0, 0);
+    VDP_SetSpriteSM1(0, PREVIEW_SPRITE_X, PREVIEW_SPRITE_Y, 0, frame->color0);
+
+    if (sprite_count > 1)
+    {
+        LoadSpritePattern(frame->pattern1, g_SecondPatternIndex);
+        VDP_SetSpriteSM1(1, PREVIEW_SPRITE_X, PREVIEW_SPRITE_Y,
+                         g_SecondPatternIndex, frame->color1);
+    }
+    else
+    {
+        VDP_HideSprite(1);
+    }
+}
+
+static void AdvanceFrame(void)
+{
+    if (g_Animation->frame_count < 2)
+        return;
+
+    if (!g_Animation->ping_pong)
+    {
+        g_FrameIndex = (g_FrameIndex + 1) % g_Animation->frame_count;
+    }
+    else if (!g_PingPongReverse)
+    {
+        if (g_FrameIndex + 1 >= g_Animation->frame_count)
+        {
+            g_PingPongReverse = 1;
+            --g_FrameIndex;
+        }
+        else
+        {
+            ++g_FrameIndex;
+        }
+    }
+    else if (g_FrameIndex == 0)
+    {
+        g_PingPongReverse = 0;
+        ++g_FrameIndex;
+    }
+    else
+    {
+        --g_FrameIndex;
+    }
+}
+
+static void DrawPlaybackStatus(void);
+
+static void DrawAnimationInfo(void)
+{
+    Print_SetPosition(0, 0);
+    Print_DrawText("                                ");
+    Print_SetPosition(0, 0);
+    Print_DrawText("ANIM ");
+    Print_DrawInt(g_AnimationIndex + 1);
+    Print_DrawText("/");
+    Print_DrawInt(sprite_animation_count);
+    Print_DrawText(" ");
+    for (u8 i = 0; i < 21 && g_Animation->name[i]; ++i)
+        Print_DrawChar(g_Animation->name[i]);
+    DrawPlaybackStatus();
+}
+
+static void DrawPlaybackStatus(void)
+{
+    Print_SetPosition(0, 1);
+    Print_DrawText(g_IsPaused ? "PAUSED - SPACE TO RESUME   " : "ARROWS SELECT  SPACE PAUSE ");
+}
+
+static void SelectAnimation(u8 index)
+{
+    g_AnimationIndex = index % sprite_animation_count;
+    g_Animation = &sprite_animations[g_AnimationIndex];
+    g_FrameIndex = 0;
+    g_PingPongReverse = 0;
+    ShowFrame(&g_Animation->frames[g_FrameIndex]);
+    g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+    DrawAnimationInfo();
+}
+
+static void RestartAnimation(void)
+{
+    g_FrameIndex = 0;
+    g_PingPongReverse = 0;
+    ShowFrame(&g_Animation->frames[g_FrameIndex]);
+    g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+}
+
+void main(void)
+{
+    u8 spriteFlags = g_PreviewSpriteSize == 16 ? VDP_SPRITE_SIZE_16 : VDP_SPRITE_SIZE_8;
+    if (g_PreviewMagnification == 2)
+        spriteFlags |= VDP_SPRITE_SCALE_2;
+
+    if (sprite_animation_count == 0)
+        while (TRUE) Halt();
+    if (g_AnimationIndex >= sprite_animation_count)
+        g_AnimationIndex = 0;
+
+    VDP_SetMode(VDP_MODE_GRAPHIC1);
+    VDP_ClearVRAM();
+    VDP_SetBackdropColor(1); /* MSX1 fixed palette color 1: black. */
+    VDP_EnableVBlank(TRUE);
+    VDP_SetSpriteTables(0x3800, 0x1B00);
+    VDP_SetSpriteFlag(spriteFlags);
+    VDP_HideAllSprites();
+    Print_SetTextFont(g_Font_MGL_Sample8, 0);
+    Print_SetColor(15, 1);
+
+    SelectAnimation(g_AnimationIndex);
+    while (TRUE)
+    {
+        Halt();
+        {
+            u8 left = Keyboard_IsKeyPressed(KEY_LEFT);
+            u8 right = Keyboard_IsKeyPressed(KEY_RIGHT);
+            u8 space = Keyboard_IsKeyPressed(KEY_SPACE);
+            u8 escape = Keyboard_IsKeyPressed(KEY_ESC);
+            u8 changedAnimation = FALSE;
+            u8 restarted = FALSE;
+            if (right && !g_PreviousRight)
+            {
+                SelectAnimation(g_AnimationIndex + 1);
+                changedAnimation = TRUE;
+            }
+            else if (left && !g_PreviousLeft)
+            {
+                SelectAnimation(g_AnimationIndex == 0 ? sprite_animation_count - 1 : g_AnimationIndex - 1);
+                changedAnimation = TRUE;
+            }
+            if (space && !g_PreviousSpace)
+            {
+                g_IsPaused = !g_IsPaused;
+                DrawPlaybackStatus();
+            }
+            if (escape && !g_PreviousEscape)
+            {
+                RestartAnimation();
+                restarted = TRUE;
+            }
+            g_PreviousLeft = left;
+            g_PreviousRight = right;
+            g_PreviousSpace = space;
+            g_PreviousEscape = escape;
+            if (changedAnimation || restarted || g_IsPaused)
+                continue;
+        }
+        if (g_FrameTimeLeft > g_FrameTickMs)
+        {
+            g_FrameTimeLeft -= g_FrameTickMs;
+        }
+        else
+        {
+            AdvanceFrame();
+            ShowFrame(&g_Animation->frames[g_FrameIndex]);
+            g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+        }
+    }
+}
+`;
 }
