@@ -1,5 +1,5 @@
 import { colorIndexToCss, colorIndexToHex, DEFAULT_PALETTE, MSX1_PALETTE, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx1Animation, exportMsx1PreviewC, exportMsx2PreviewC, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
+import { exportMsx1Animation, exportMsx1PreviewC, exportMsx2PreviewAsm, exportMsx2PreviewC, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
@@ -1206,10 +1206,13 @@ function updateExportFormatUi(): void {
     basic: { language: "MSX BASIC DATA", extension: ".bas" },
   } as const;
   const selected = labels[format as keyof typeof labels] ?? labels.c;
-  exportLanguage.textContent = selected.language;
+  const previewLanguage = activeExportTab === "preview" && msxTarget === "msx2" && format === "asm"
+    ? "SJASMPLUS / MSX2"
+    : selected.language;
+  exportLanguage.textContent = previewLanguage;
   exportSelectedButton.textContent = "Export";
   exportSelectedButton.dataset.extension = selected.extension;
-  const previewAvailable = format === "c";
+  const previewAvailable = format === "c" || (msxTarget === "msx2" && format === "asm");
   exportCodeTabs.hidden = !previewAvailable;
   if (!previewAvailable) activeExportTab = "data";
   exportDataTab.setAttribute("aria-selected", String(activeExportTab === "data"));
@@ -1219,11 +1222,13 @@ function updateExportFormatUi(): void {
 
 function renderOutput(): void {
   try {
-    const showingPreview = activeExportTab === "preview" && exportFormat.value === "c";
+    const showingPreview = activeExportTab === "preview" && (exportFormat.value === "c" || (msxTarget === "msx2" && exportFormat.value === "asm"));
     const source = showingPreview
-      ? msxTarget === "msx1"
-        ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
-        : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
+      ? exportFormat.value === "asm"
+        ? exportMsx2PreviewAsm(animations, spriteMode === "single" ? 1 : 2, project.spriteSize, project.palette, activeAnimationIndex)
+        : msxTarget === "msx1"
+          ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+          : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
       : getGeneratedSource();
     const format = exportFormat.value;
     const tokensByFormat = {
@@ -1821,13 +1826,16 @@ exportFormat.addEventListener("change", () => {
   renderOutput();
 });
 exportSelectedButton.addEventListener("click", () => {
-  const exportingPreview = activeExportTab === "preview" && exportFormat.value === "c";
-  const extension = exportingPreview ? ".c" : exportSelectedButton.dataset.extension ?? ".h";
+  const exportingAsmPreview = activeExportTab === "preview" && msxTarget === "msx2" && exportFormat.value === "asm";
+  const exportingPreview = exportingAsmPreview || (activeExportTab === "preview" && exportFormat.value === "c");
+  const extension = exportingAsmPreview ? ".asm" : exportingPreview ? ".c" : exportSelectedButton.dataset.extension ?? ".h";
   const mimeType = exportFormat.value === "c" ? "text/x-c" : "text/plain";
   const source = exportingPreview
-    ? msxTarget === "msx1"
-      ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
-      : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
+    ? exportingAsmPreview
+      ? exportMsx2PreviewAsm(animations, spriteMode === "single" ? 1 : 2, project.spriteSize, project.palette, activeAnimationIndex)
+      : msxTarget === "msx1"
+        ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+        : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
     : getGeneratedSource();
   download(exportingPreview ? `sprite-animation-preview${extension}` : `sprite-animation${extension}`, source, mimeType);
 });

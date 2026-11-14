@@ -539,6 +539,442 @@ void main(void)
 `;
 }
 
+const ASM_PREVIEW_FONT: Record<string, number[]> = {
+  " ": [0, 0, 0, 0, 0], ":": [0, 4, 0, 4, 0], "/": [1, 2, 4, 8, 16], "-": [0, 0, 31, 0, 0], "_": [0, 0, 0, 0, 31], ".": [0, 0, 0, 0, 4],
+  A: [14, 17, 17, 31, 17], B: [30, 17, 30, 17, 30], C: [14, 17, 16, 17, 14], D: [30, 17, 17, 17, 30], E: [31, 16, 30, 16, 31],
+  F: [31, 16, 30, 16, 16], G: [14, 17, 23, 17, 15], H: [17, 17, 31, 17, 17], I: [14, 4, 4, 4, 14], J: [7, 2, 2, 18, 12],
+  K: [17, 18, 28, 18, 17], L: [16, 16, 16, 16, 31], M: [17, 27, 21, 17, 17], N: [17, 25, 21, 19, 17], O: [14, 17, 17, 17, 14],
+  P: [30, 17, 30, 16, 16], Q: [14, 17, 17, 21, 13], R: [30, 17, 30, 18, 17], S: [15, 16, 14, 1, 30], T: [31, 4, 4, 4, 4],
+  U: [17, 17, 17, 17, 14], V: [17, 17, 17, 10, 4], W: [17, 17, 21, 27, 17], X: [17, 10, 4, 10, 17], Y: [17, 10, 4, 4, 4], Z: [31, 2, 4, 8, 31],
+  0: [14, 17, 19, 21, 14], 1: [4, 12, 4, 4, 14], 2: [14, 17, 2, 8, 31], 3: [30, 1, 6, 1, 30], 4: [2, 6, 10, 31, 2],
+  5: [31, 16, 30, 1, 30], 6: [14, 16, 30, 17, 14], 7: [31, 1, 2, 4, 4], 8: [14, 17, 14, 17, 14], 9: [14, 17, 15, 1, 14],
+};
+
+function renderAsmPreviewTextRow(text: string): number[][] {
+  const chars = text.toUpperCase().replace(/[^A-Z0-9 :/_.-]/g, " ").padEnd(32, " ").slice(0, 32);
+  return Array.from({ length: 5 }, (_, row) => {
+    const bytes: number[] = [];
+    for (const char of chars) {
+      const glyph = ASM_PREVIEW_FONT[char] ?? ASM_PREVIEW_FONT[" "];
+      const bit = (column: number) => (glyph[row] & (1 << (4 - column))) !== 0;
+      bytes.push(bit(0) ? 0x0f : 0, (bit(1) ? 0xf0 : 0) | (bit(2) ? 0x0f : 0), (bit(3) ? 0xf0 : 0) | (bit(4) ? 0x0f : 0), 0);
+    }
+    return bytes;
+  });
+}
+
+/** Emit a standalone SjASMPlus ROM preview for all clips in the MSX2 project. */
+export function exportMsx2PreviewAsm(
+  animations: Msx2Animation[],
+  spriteCount: 1 | 2,
+  size: SpriteSize,
+  palette: number[],
+  animationIndex = 0,
+): string {
+  if (!animations.length) throw new Error("Project must contain at least one animation.");
+  if (animations.length > 255) throw new Error("SjASMPlus preview supports up to 255 animations.");
+  animations.forEach((animation, index) => {
+    if (animation.frames.length > 255) throw new Error(`Animation ${index + 1} exceeds the 255-frame preview limit.`);
+    if (!animation.frames.length || animation.frameDurationsMs.length !== animation.frames.length) {
+      throw new Error(`Animation ${index + 1} must contain frames with a duration for each frame.`);
+    }
+    animation.frames.forEach((sprites, frameIndex) => {
+      if (sprites.length < spriteCount) throw new Error(`Animation ${index + 1}, frame ${frameIndex + 1} has too few sprites for this mode.`);
+    });
+  });
+  if (animationIndex < 0 || animationIndex >= animations.length) animationIndex = 0;
+
+  const spritePatternBytes = size === 16 ? 32 : 8;
+  const secondPatternIndex = size === 16 ? 4 : 1;
+  const paletteBytes = encodePaletteRegisters(palette);
+  paletteBytes[0] = 0;
+  paletteBytes[1] = 0;
+  const lines = [
+    "; MSX SpriteMate standalone MSX2 V9938 Sprite Mode 2 animation player.",
+    "; SjASMPlus ROM; this player does not use MSXgl.",
+    "; Build: sjasmplus --raw=sprite-animation-preview.rom sprite-animation-preview.asm",
+    `; Starts with animation ${animationIndex + 1}/${animations.length}: ${cleanComment(animations[animationIndex].name)}.`,
+    "; Left/Right: select animation. Space: pause/resume. Escape: restart current animation.",
+    "; Screen 5, black background, white status text, 50 Hz frame timing.",
+    "AnimationIndex equ $C000",
+    "FrameIndex equ $C001",
+    "FrameDirection equ $C002",
+    "TicksRemaining equ $C003",
+    "CurrentKeys equ $C004",
+    "PreviousKeys equ $C005",
+    "PressedKeys equ $C006",
+    "IsPaused equ $C007",
+    "SkipTick equ $C008",
+    "",
+    "        org $4000",
+    '        db "AB"',
+    "        dw Start, 0, 0, 0, 0, 0, 0",
+    "",
+    "Start:",
+    "        ld a,5",
+    "        call $005F                 ; BIOS CHGMOD: Screen 5",
+    "        ld hl,$0000",
+    "        ld bc,$6A00                ; clear 256x212 bitmap to palette index 0",
+    "        xor a",
+    "        call $0056                 ; BIOS FILVRM",
+    "        xor a",
+    "        out ($99),a",
+    "        ld a,$87                    ; R#7: black backdrop/border",
+    "        out ($99),a",
+    "        ld a,($F3E0)",
+    "        and $FC                    ; force 1x magnification and select sprite size",
+    ...(size === 16 ? ["        or $02"] : []),
+    "        out ($99),a",
+    "        ld a,$81",
+    "        out ($99),a",
+    "        ld a,($FFE7)",
+    "        and $FD                    ; enable sprites (clear R#8 SPD)",
+    "        out ($99),a",
+    "        ld a,$88",
+    "        out ($99),a",
+    "        ld a,$3C",
+    "        out ($99),a",
+    "        ld a,$86                    ; R#6: sprite patterns at VRAM $1E000",
+    "        out ($99),a",
+    "        ld a,$E7",
+    "        out ($99),a",
+    "        ld a,$85                    ; R#5: sprite attributes at VRAM $1F200",
+    "        out ($99),a",
+    "        ld a,$03",
+    "        out ($99),a",
+    "        ld a,$8B                    ; R#11: high SAT address bits",
+    "        out ($99),a",
+    "        xor a",
+    "        out ($99),a",
+    "        ld a,$90                    ; R#16: palette index 0",
+    "        out ($99),a",
+    "        ld hl,SpritePalette",
+    "        ld b,32",
+    "PaletteLoop:",
+    "        ld a,(hl)",
+    "        out ($9A),a",
+    "        inc hl",
+    "        djnz PaletteLoop",
+    "        ld hl,SpriteAttributes",
+    "        ld de,$3200                ; low 14 bits of VRAM address $1F200",
+    `        ld bc,$${(spriteCount * 4 + 1).toString(16).padStart(4, "0")}`,
+    "        ld a,$07",
+    "        call WriteVRAM",
+    "        ld hl,AnimationIndex",
+    "        ld b,9",
+    "        xor a",
+    "ClearState:",
+    "        ld (hl),a",
+    "        inc hl",
+    "        djnz ClearState",
+    "        ld a," + animationIndex,
+    "        call SelectAnimation",
+    "        call DrawControls",
+    "        ei",
+    "",
+    "MainLoop:",
+    "        halt",
+    "        call ReadControls",
+    "        xor a",
+    "        ld (SkipTick),a",
+    "        ld a,(PressedKeys)",
+    "        bit 1,a",
+    "        jr z,CheckLeft",
+    "        call SelectNextAnimation",
+    "        jr ControlsDone",
+    "CheckLeft:",
+    "        ld a,(PressedKeys)",
+    "        bit 0,a",
+    "        jr z,CheckSpace",
+    "        call SelectPreviousAnimation",
+    "        jr ControlsDone",
+    "CheckSpace:",
+    "        ld a,(PressedKeys)",
+    "        bit 2,a",
+    "        jr z,CheckEscape",
+    "        ld a,(IsPaused)",
+    "        xor 1",
+    "        ld (IsPaused),a",
+    "        call DrawPauseStatus",
+    "        ld a,1",
+    "        ld (SkipTick),a",
+    "CheckEscape:",
+    "        ld a,(PressedKeys)",
+    "        bit 3,a",
+    "        jr z,ControlsDone",
+    "        xor a",
+    "        ld (FrameIndex),a",
+    "        ld (FrameDirection),a",
+    "        call ShowCurrentFrame",
+    "        call LoadFrameDuration",
+    "        ld a,1",
+    "        ld (SkipTick),a",
+    "ControlsDone:",
+    "        ld a,(SkipTick)",
+    "        or a",
+    "        jr nz,MainLoop",
+    "        ld a,(IsPaused)",
+    "        or a",
+    "        jr nz,MainLoop",
+    "        ld a,(TicksRemaining)",
+    "        dec a",
+    "        ld (TicksRemaining),a",
+    "        jr nz,MainLoop",
+    "        call AdvanceFrame",
+    "        call ShowCurrentFrame",
+    "        call LoadFrameDuration",
+    "        jp MainLoop",
+    "",
+    "ReadControls:",
+    "        xor a",
+    "        ld (CurrentKeys),a",
+    "        ld a,8",
+    "        call $0141                 ; BIOS SNSMAT, cursor keys and Space",
+    "        bit 4,a",
+    "        jr nz,NoLeftKey",
+    "        ld a,(CurrentKeys)",
+    "        or $01",
+    "        ld (CurrentKeys),a",
+    "NoLeftKey:",
+    "        ld a,8",
+    "        call $0141",
+    "        bit 7,a",
+    "        jr nz,NoRightKey",
+    "        ld a,(CurrentKeys)",
+    "        or $02",
+    "        ld (CurrentKeys),a",
+    "NoRightKey:",
+    "        ld a,8",
+    "        call $0141",
+    "        bit 0,a",
+    "        jr nz,NoSpaceKey",
+    "        ld a,(CurrentKeys)",
+    "        or $04",
+    "        ld (CurrentKeys),a",
+    "NoSpaceKey:",
+    "        ld a,7",
+    "        call $0141                 ; BIOS SNSMAT, Escape",
+    "        bit 2,a",
+    "        jr nz,NoEscapeKey",
+    "        ld a,(CurrentKeys)",
+    "        or $08",
+    "        ld (CurrentKeys),a",
+    "NoEscapeKey:",
+    "        ld a,(PreviousKeys)",
+    "        cpl",
+    "        ld b,a",
+    "        ld a,(CurrentKeys)",
+    "        and b",
+    "        ld (PressedKeys),a",
+    "        ld a,(CurrentKeys)",
+    "        ld (PreviousKeys),a",
+    "        ret",
+    "",
+    "SelectNextAnimation:",
+    "        ld a,(AnimationIndex)",
+    "        inc a",
+    `        cp ${animations.length}`,
+    "        jr c,SelectAnimation",
+    "        xor a",
+    "        jp SelectAnimation",
+    "SelectPreviousAnimation:",
+    "        ld a,(AnimationIndex)",
+    "        or a",
+    "        jr nz,SelectPreviousDecrement",
+    `        ld a,${animations.length - 1}`,
+    "        jp SelectAnimation",
+    "SelectPreviousDecrement:",
+    "        dec a",
+    "        jp SelectAnimation",
+    "",
+    "SelectAnimation:",
+    "        ld (AnimationIndex),a",
+    "        xor a",
+    "        ld (FrameIndex),a",
+    "        ld (FrameDirection),a",
+    "        ld a,1",
+    "        ld (SkipTick),a",
+    "        call ShowCurrentFrame",
+    "        call LoadFrameDuration",
+    "        call DrawAnimationTitle",
+    "        ret",
+    "",
+    "DrawAnimationTitle:",
+    "        ld a,(AnimationIndex)",
+  ];
+  animations.forEach((_, animationIndex) => lines.push(`        cp ${animationIndex}`, `        jp z,DrawAnimationTitle${animationIndex}`));
+  lines.push("        ret", "");
+  animations.forEach((animation, animationIndex) => {
+    lines.push(`DrawAnimationTitle${animationIndex}:`);
+    const title = `ANIM ${animationIndex + 1}/${animations.length} ${animation.name}`;
+    renderAsmPreviewTextRow(title).forEach((bytes, row) => {
+      lines.push(`        ld hl,Title${animationIndex}Row${row}`, `        ld de,$${((row + 1) * 128).toString(16).padStart(4, "0")}`, "        ld bc,$0080", "        xor a", "        call WriteVRAM");
+    });
+    lines.push("        ret", "");
+  });
+  lines.push(
+    "DrawControls:",
+    "        ld hl,ControlsSelectRow0", "        ld de,$0480", "        ld bc,$0080", "        xor a", "        call WriteVRAM",
+    "        ld hl,ControlsSelectRow1", "        ld de,$0500", "        ld bc,$0080", "        xor a", "        call WriteVRAM",
+    "        ld hl,ControlsSelectRow2", "        ld de,$0580", "        ld bc,$0080", "        xor a", "        call WriteVRAM",
+    "        ld hl,ControlsSelectRow3", "        ld de,$0600", "        ld bc,$0080", "        xor a", "        call WriteVRAM",
+    "        ld hl,ControlsSelectRow4", "        ld de,$0680", "        ld bc,$0080", "        xor a", "        call WriteVRAM",
+    "        jp DrawPauseStatus",
+    "",
+    "DrawPauseStatus:",
+    "        ld a,(IsPaused)",
+    "        or a",
+    "        jp nz,DrawResumeText",
+  );
+  const addPauseRow = (prefix: string, text: string) => {
+    lines.push(`${prefix}:`);
+    renderAsmPreviewTextRow(text).forEach((bytes, row) => {
+      lines.push(`        ld hl,${prefix}Row${row}`, `        ld de,$${((row + 17) * 128).toString(16).padStart(4, "0")}`, "        ld bc,$0080", "        xor a", "        call WriteVRAM");
+    });
+    lines.push("        ret", "");
+  };
+  lines.push("        jp DrawPauseText", "DrawResumeText:", "        jp DrawResumeTextRows", "");
+  addPauseRow("DrawPauseText", "SPACE: PAUSE  ESC: RESTART");
+  addPauseRow("DrawResumeTextRows", "SPACE: RESUME  ESC: RESTART");
+
+  lines.push("ShowCurrentFrame:", "        ld a,(AnimationIndex)");
+  animations.forEach((_, animationIndex) => lines.push(`        cp ${animationIndex}`, `        jp z,ShowCurrentFrame${animationIndex}`));
+  lines.push("        ret", "");
+  animations.forEach((animation, animationIndex) => {
+    lines.push(`ShowCurrentFrame${animationIndex}:`, "        ld a,(FrameIndex)");
+    animation.frames.forEach((_, frameIndex) => lines.push(`        cp ${frameIndex}`, `        jp z,ShowFrame${animationIndex}_${frameIndex}`));
+    lines.push("        ret", "");
+  });
+
+  lines.push("LoadFrameDuration:", "        ld a,(AnimationIndex)");
+  animations.forEach((_, animationIndex) => lines.push(`        cp ${animationIndex}`, `        jp z,LoadFrameDuration${animationIndex}`));
+  lines.push("        ret", "");
+  animations.forEach((animation, animationIndex) => {
+    lines.push(`LoadFrameDuration${animationIndex}:`, "        ld a,(FrameIndex)");
+    animation.frameDurationsMs.forEach((duration, frameIndex) => {
+      const ticks = Math.max(1, Math.min(255, Math.ceil(duration / 20)));
+      lines.push(`        cp ${frameIndex}`, `        jp z,LoadDuration${animationIndex}_${frameIndex}`);
+    });
+    lines.push("        ret", "");
+    animation.frameDurationsMs.forEach((duration, frameIndex) => {
+      const ticks = Math.max(1, Math.min(255, Math.ceil(duration / 20)));
+      lines.push(`LoadDuration${animationIndex}_${frameIndex}:`, `        ld a,${ticks}`, "        ld (TicksRemaining),a", "        ret", "");
+    });
+  });
+
+  lines.push("AdvanceFrame:", "        ld a,(AnimationIndex)");
+  animations.forEach((_, animationIndex) => lines.push(`        cp ${animationIndex}`, `        jp z,AdvanceFrame${animationIndex}`));
+  lines.push("        ret", "");
+  animations.forEach((animation, animationIndex) => {
+    const frameCount = animation.frames.length;
+    lines.push(`AdvanceFrame${animationIndex}:`);
+    if (frameCount <= 1) {
+      lines.push("        ret", "");
+      return;
+    }
+    if (animation.playbackMode === "pingpong") {
+      lines.push(
+        "        ld a,(FrameDirection)",
+        "        or a",
+        `        jr nz,AdvanceFrame${animationIndex}Reverse`,
+        "        ld a,(FrameIndex)",
+        "        inc a",
+        `        cp ${frameCount}`,
+        `        jr c,AdvanceFrame${animationIndex}Store`,
+        "        ld a,1",
+        "        ld (FrameDirection),a",
+        "        ld a,(FrameIndex)",
+        "        dec a",
+        `        jr AdvanceFrame${animationIndex}Store`,
+        `AdvanceFrame${animationIndex}Reverse:`,
+        "        ld a,(FrameIndex)",
+        "        or a",
+        `        jr z,AdvanceFrame${animationIndex}TurnForward`,
+        "        dec a",
+        `        jr AdvanceFrame${animationIndex}Store`,
+        `AdvanceFrame${animationIndex}TurnForward:`,
+        "        xor a",
+        "        ld (FrameDirection),a",
+        "        ld a,1",
+        `AdvanceFrame${animationIndex}Store:`,
+        "        ld (FrameIndex),a",
+        "        ret",
+        "",
+      );
+    } else {
+      lines.push(
+        "        ld a,(FrameIndex)",
+        "        inc a",
+        `        cp ${frameCount}`,
+        `        jr c,AdvanceFrame${animationIndex}Store`,
+        "        xor a",
+        `AdvanceFrame${animationIndex}Store:`,
+        "        ld (FrameIndex),a",
+        "        ret",
+        "",
+      );
+    }
+  });
+
+  lines.push(
+    "WriteVRAM:",
+    "        out ($99),a",
+    "        ld a,$8E                    ; select VDP R#14 VRAM bank",
+    "        out ($99),a",
+    "        ld a,e",
+    "        out ($99),a",
+    "        ld a,d",
+    "        and $3F",
+    "        or $40                    ; set VRAM write address",
+    "        out ($99),a",
+    "WriteVRAMLoop:",
+    "        ld a,(hl)",
+    "        out ($98),a",
+    "        inc hl",
+    "        dec bc",
+    "        ld a,b",
+    "        or c",
+    "        jr nz,WriteVRAMLoop",
+    "        ret",
+    "",
+  );
+
+  animations.forEach((animation, animationIndex) => {
+    animation.frames.forEach((sprites, frameIndex) => {
+      lines.push(`; Animation ${animationIndex + 1}: ${cleanComment(animation.name)}, frame ${frameIndex + 1}.`, `ShowFrame${animationIndex}_${frameIndex}:`);
+      const frameData: string[] = [];
+      sprites.slice(0, spriteCount).forEach((sprite, spriteIndex) => {
+        const encoded = encodeMsx2ProjectSprite(sprite, size);
+        const prefix = `Anim${animationIndex}Frame${frameIndex}Sprite${spriteIndex}`;
+        const pattern = size === 16
+          ? [...encoded.pattern.slice(0, 8), ...encoded.pattern.slice(16, 24), ...encoded.pattern.slice(8, 16), ...encoded.pattern.slice(24, 32)]
+          : encoded.pattern.slice(0, 8);
+        const patternAddress = 0x2000 + spriteIndex * spritePatternBytes;
+        const colorAddress = 0x3000 + spriteIndex * 16;
+        lines.push(
+          `        ld hl,${prefix}Pattern`, `        ld de,$${patternAddress.toString(16).padStart(4, "0")}`,
+          `        ld bc,$${pattern.length.toString(16).padStart(4, "0")}`, "        ld a,$07", "        call WriteVRAM",
+          `        ld hl,${prefix}Colors`, `        ld de,$${colorAddress.toString(16).padStart(4, "0")}`,
+          "        ld bc,$0010", "        ld a,$07", "        call WriteVRAM",
+        );
+        frameData.push(`${prefix}Pattern:`, formatAsmBytes(pattern), `${prefix}Colors:`, formatAsmBytes(encoded.colors.slice(0, 16)), "");
+      });
+      lines.push("        ret", "", ...frameData, "");
+    });
+  });
+
+  lines.push("SpritePalette:", formatAsmBytes(paletteBytes), "", "SpriteAttributes:", `        db 80,112,0,0${spriteCount === 2 ? `, 80,112,${secondPatternIndex},0` : ""},216`, "");
+  animations.forEach((animation, animationIndex) => {
+    const titleRows = renderAsmPreviewTextRow(`ANIM ${animationIndex + 1}/${animations.length} ${animation.name}`);
+    titleRows.forEach((bytes, row) => lines.push(`Title${animationIndex}Row${row}:`, formatAsmBytes(bytes)));
+  });
+  renderAsmPreviewTextRow("ARROWS: CHANGE ANIM").forEach((bytes, row) => lines.push(`ControlsSelectRow${row}:`, formatAsmBytes(bytes)));
+  renderAsmPreviewTextRow("SPACE: PAUSE  ESC: RESTART").forEach((bytes, row) => lines.push(`DrawPauseTextRow${row}:`, formatAsmBytes(bytes)));
+  renderAsmPreviewTextRow("SPACE: RESUME  ESC: RESTART").forEach((bytes, row) => lines.push(`DrawResumeTextRowsRow${row}:`, formatAsmBytes(bytes)));
+  lines.push("", "        ds $C000-$,$FF");
+  return lines.join("\n");
+}
+
 /** Emit a standalone MSXgl player source file for an exported MSX1 data header. */
 export function exportMsx1PreviewC(size: SpriteSize, magnification: 1 | 2, animationIndex = 0): string {
   return `/*
