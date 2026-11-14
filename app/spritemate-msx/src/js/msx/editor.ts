@@ -1,5 +1,5 @@
 import { colorIndexToCss, colorIndexToHex, DEFAULT_PALETTE, MSX1_PALETTE, packRgb3, unpackRgb3 } from "./palette";
-import { exportMsx1Animation, exportMsx1PreviewC, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
+import { exportMsx1Animation, exportMsx1PreviewC, exportMsx2PreviewC, exportMsx2AnimationAsm, exportMsx2AnimationBasic, exportMsx2AnimationC } from "./exportC";
 import {
   createMsx2Project,
   normalizeMsx2Palette,
@@ -1209,7 +1209,7 @@ function updateExportFormatUi(): void {
   exportLanguage.textContent = selected.language;
   exportSelectedButton.textContent = "Export";
   exportSelectedButton.dataset.extension = selected.extension;
-  const previewAvailable = msxTarget === "msx1" && format === "c";
+  const previewAvailable = format === "c";
   exportCodeTabs.hidden = !previewAvailable;
   if (!previewAvailable) activeExportTab = "data";
   exportDataTab.setAttribute("aria-selected", String(activeExportTab === "data"));
@@ -1219,9 +1219,11 @@ function updateExportFormatUi(): void {
 
 function renderOutput(): void {
   try {
-    const showingPreview = activeExportTab === "preview" && msxTarget === "msx1" && exportFormat.value === "c";
+    const showingPreview = activeExportTab === "preview" && exportFormat.value === "c";
     const source = showingPreview
-      ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+      ? msxTarget === "msx1"
+        ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+        : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
       : getGeneratedSource();
     const format = exportFormat.value;
     const tokensByFormat = {
@@ -1819,11 +1821,13 @@ exportFormat.addEventListener("change", () => {
   renderOutput();
 });
 exportSelectedButton.addEventListener("click", () => {
-  const exportingPreview = activeExportTab === "preview" && msxTarget === "msx1" && exportFormat.value === "c";
+  const exportingPreview = activeExportTab === "preview" && exportFormat.value === "c";
   const extension = exportingPreview ? ".c" : exportSelectedButton.dataset.extension ?? ".h";
   const mimeType = exportFormat.value === "c" ? "text/x-c" : "text/plain";
   const source = exportingPreview
-    ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+    ? msxTarget === "msx1"
+      ? exportMsx1PreviewC(project.spriteSize, project.magnification ?? 1, activeAnimationIndex)
+      : exportMsx2PreviewC(project.spriteSize, spriteMode === "single" ? 1 : 2, activeAnimationIndex)
     : getGeneratedSource();
   download(exportingPreview ? `sprite-animation-preview${extension}` : `sprite-animation${extension}`, source, mimeType);
 });

@@ -328,6 +328,217 @@ export function exportMsx1Animation(
   return lines.join("\n");
 }
 
+/** Emit a standalone MSXgl player source file for an exported MSX2 Sprite Mode 2 data header. */
+export function exportMsx2PreviewC(
+  size: SpriteSize,
+  spriteCount: 1 | 2,
+  animationIndex = 0,
+): string {
+  const secondPatternIndex = size === 16 ? 4 : 1;
+  return `/*
+ * MSX SpriteMate animation preview for MSX2 V9938 Sprite Mode 2.
+ * This standalone preview program uses MSXgl, including its print module.
+ * Add "print" to LibModules and enable PRINT_USE_BITMAP in msxgl_config.h.
+ * Save beside sprite-animation.h and build it for Machine = "2".
+ * Controls: Left/Right select animations, Space pauses/resumes, Escape restarts.
+ */
+#include "msxgl.h"
+#include "sprite-animation.h"
+#include "font/font_mgl_sample8.h"
+
+/* Starts with the animation selected in SpriteMate, from its first frame. */
+#define PREVIEW_ANIMATION_INDEX ${animationIndex}
+/* Sprite positions can be adjusted here. */
+#define PREVIEW_SPRITE_X 112
+#define PREVIEW_SPRITE_Y 80
+
+static const u8 g_PreviewSpriteSize = ${size};
+static const u8 g_SecondPatternIndex = ${secondPatternIndex};
+static const u16 g_FrameTickMs = 20; /* MSX2 default is 50 Hz. */
+static const VADDR g_SpritePatternTable = 0x17000L;
+static const VADDR g_SpriteAttributeTable = 0x17A00L;
+static u8 g_SpriteColorBuffer[16];
+
+static const SpriteAnimation* g_Animation;
+static u8 g_AnimationIndex = PREVIEW_ANIMATION_INDEX;
+static u8 g_FrameIndex = 0;
+static u8 g_PingPongReverse = 0;
+static u16 g_FrameTimeLeft = 0;
+static u8 g_PreviousLeft = 0;
+static u8 g_PreviousRight = 0;
+static u8 g_PreviousSpace = 0;
+static u8 g_PreviousEscape = 0;
+static u8 g_IsPaused = 0;
+
+static void SetSprite(u8 index, u8 shape, const u8* pattern, const u8* colors)
+{
+    for (u8 y = 0; y < 16; ++y)
+        g_SpriteColorBuffer[y] = y < g_PreviewSpriteSize ? colors[y] : 0;
+    if (g_PreviewSpriteSize == 16)
+    {
+        /* VDP 16x16 pattern order is top-left, bottom-left, top-right, bottom-right. */
+        VDP_LoadSpritePattern(pattern, shape, 1);
+        VDP_LoadSpritePattern(pattern + 16, shape + 1, 1);
+        VDP_LoadSpritePattern(pattern + 8, shape + 2, 1);
+        VDP_LoadSpritePattern(pattern + 24, shape + 3, 1);
+    }
+    else VDP_LoadSpritePattern(pattern, shape, 1);
+    VDP_SetSpriteExMultiColor(index, PREVIEW_SPRITE_X, PREVIEW_SPRITE_Y, shape, g_SpriteColorBuffer);
+}
+
+static void ShowFrame(const SpriteAnimationFrame* frame)
+{
+    SetSprite(0, 0, frame->pattern0, frame->colors0);
+
+    if (${spriteCount} > 1)
+    {
+        SetSprite(1, g_SecondPatternIndex, frame->pattern1, frame->colors1);
+    }
+    else
+    {
+        VDP_HideSprite(1);
+    }
+}
+
+static void AdvanceFrame(void)
+{
+    if (g_Animation->frame_count < 2)
+        return;
+
+    if (!g_Animation->ping_pong)
+    {
+        g_FrameIndex = (g_FrameIndex + 1) % g_Animation->frame_count;
+    }
+    else if (!g_PingPongReverse)
+    {
+        if (g_FrameIndex + 1 >= g_Animation->frame_count)
+        {
+            g_PingPongReverse = 1;
+            --g_FrameIndex;
+        }
+        else ++g_FrameIndex;
+    }
+    else if (g_FrameIndex == 0)
+    {
+        g_PingPongReverse = 0;
+        ++g_FrameIndex;
+    }
+    else --g_FrameIndex;
+}
+
+static void DrawPlaybackStatus(void)
+{
+    Print_SetPosition(0, 10);
+    Print_DrawText(g_IsPaused ? "PAUSED - SPACE TO RESUME   " : "ARROWS SELECT  SPACE PAUSE ");
+}
+
+static void DrawAnimationInfo(void)
+{
+    Print_SetPosition(0, 0);
+    Print_DrawText("                                ");
+    Print_SetPosition(0, 0);
+    Print_DrawText("ANIM ");
+    Print_DrawInt(g_AnimationIndex + 1);
+    Print_DrawText("/");
+    Print_DrawInt(sprite_animation_count);
+    Print_DrawText(" ");
+    for (u8 i = 0; i < 21 && g_Animation->name[i]; ++i)
+        Print_DrawChar(g_Animation->name[i]);
+    DrawPlaybackStatus();
+}
+
+static void SelectAnimation(u8 index)
+{
+    g_AnimationIndex = index % sprite_animation_count;
+    g_Animation = &sprite_animations[g_AnimationIndex];
+    g_FrameIndex = 0;
+    g_PingPongReverse = 0;
+    ShowFrame(&g_Animation->frames[g_FrameIndex]);
+    g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+    DrawAnimationInfo();
+}
+
+static void RestartAnimation(void)
+{
+    g_FrameIndex = 0;
+    g_PingPongReverse = 0;
+    ShowFrame(&g_Animation->frames[g_FrameIndex]);
+    g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+}
+
+void main(void)
+{
+    u8 spriteFlags = g_PreviewSpriteSize == 16 ? VDP_SPRITE_SIZE_16 : VDP_SPRITE_SIZE_8;
+    if (sprite_animation_count == 0)
+        while (TRUE) Halt();
+    if (g_AnimationIndex >= sprite_animation_count)
+        g_AnimationIndex = 0;
+
+    VDP_SetMode(VDP_MODE_SCREEN5);
+    VDP_ClearVRAM();
+    VDP_SetBackdropColor(0);
+    VDP_SetPaletteEntry(0, RGB16(0, 0, 0));
+    VDP_SetPalette(sprite_palette + 2); /* Entries 1-15; palette slot 0 stays black. */
+    VDP_EnableVBlank(TRUE);
+    VDP_SetSpriteTables(g_SpritePatternTable, g_SpriteAttributeTable);
+    VDP_SetSpriteFlag(spriteFlags);
+    VDP_EnableSprite(TRUE);
+    VDP_HideAllSprites();
+    Print_SetBitmapFont(g_Font_MGL_Sample8);
+    Print_SetColor(15, 0);
+
+    SelectAnimation(g_AnimationIndex);
+    while (TRUE)
+    {
+        Halt();
+        {
+            u8 left = Keyboard_IsKeyPressed(KEY_LEFT);
+            u8 right = Keyboard_IsKeyPressed(KEY_RIGHT);
+            u8 space = Keyboard_IsKeyPressed(KEY_SPACE);
+            u8 escape = Keyboard_IsKeyPressed(KEY_ESC);
+            u8 changedAnimation = FALSE;
+            u8 restarted = FALSE;
+            if (right && !g_PreviousRight)
+            {
+                SelectAnimation(g_AnimationIndex + 1);
+                changedAnimation = TRUE;
+            }
+            else if (left && !g_PreviousLeft)
+            {
+                SelectAnimation(g_AnimationIndex == 0 ? sprite_animation_count - 1 : g_AnimationIndex - 1);
+                changedAnimation = TRUE;
+            }
+            if (space && !g_PreviousSpace)
+            {
+                g_IsPaused = !g_IsPaused;
+                DrawPlaybackStatus();
+            }
+            if (escape && !g_PreviousEscape)
+            {
+                RestartAnimation();
+                restarted = TRUE;
+            }
+            g_PreviousLeft = left;
+            g_PreviousRight = right;
+            g_PreviousSpace = space;
+            g_PreviousEscape = escape;
+
+            if (!g_IsPaused && !changedAnimation && !restarted)
+            {
+                if (g_FrameTimeLeft <= g_FrameTickMs)
+                {
+                    AdvanceFrame();
+                    ShowFrame(&g_Animation->frames[g_FrameIndex]);
+                    g_FrameTimeLeft = g_Animation->frames[g_FrameIndex].duration_ms;
+                }
+                else g_FrameTimeLeft -= g_FrameTickMs;
+            }
+        }
+    }
+}
+`;
+}
+
 /** Emit a standalone MSXgl player source file for an exported MSX1 data header. */
 export function exportMsx1PreviewC(size: SpriteSize, magnification: 1 | 2, animationIndex = 0): string {
   return `/*
